@@ -393,4 +393,162 @@ class IndiPropertyTest {
         assertTrue("Should contain Off", xml.contains("Off"))
         assertWellFormedXml(xml)
     }
+
+    // --- Phase 2 Plan 01: NumberVectorProperty, perm field, IndiDevice ---
+
+    @Test
+    fun `NumberVectorProperty with 3 elements serializes defNumberVector with 3 defNumber children`() {
+        val elements = mutableListOf(
+            NumberElement("CCD_MAX_X", "Max X", "%6.0f", 4032.0, 0.0, 10000.0, 0.0),
+            NumberElement("CCD_MAX_Y", "Max Y", "%6.0f", 3024.0, 0.0, 10000.0, 0.0),
+            NumberElement("CCD_PIXEL_SIZE", "Pixel Size", "%6.2f", 1.22, 0.0, 100.0, 0.0)
+        )
+        val prop = NumberVectorProperty(
+            device = "CCD Simulator",
+            name = "CCD_INFO",
+            label = "CCD Info",
+            group = "Image Info",
+            initialState = PropertyState.Idle,
+            perm = "ro",
+            elements = elements
+        )
+
+        val xml = writePropertyToXml(prop)
+
+        assertTrue("Should contain defNumberVector", xml.contains("defNumberVector"))
+        // Count defNumber occurrences
+        val defNumberCount = Regex("defNumber").findAll(xml).count()
+        // Each defNumber has open + close tag = 2 occurrences per element, so 6 total for 3 elements
+        assertEquals("Should have 3 defNumber elements (6 tags)", 6, defNumberCount)
+        assertTrue("Should contain CCD_MAX_X", xml.contains("CCD_MAX_X"))
+        assertTrue("Should contain CCD_MAX_Y", xml.contains("CCD_MAX_Y"))
+        assertTrue("Should contain CCD_PIXEL_SIZE", xml.contains("CCD_PIXEL_SIZE"))
+        assertWellFormedXml(xml)
+    }
+
+    @Test
+    fun `NumberVectorProperty writeSetXml produces setNumberVector with 3 oneNumber children`() {
+        val elements = mutableListOf(
+            NumberElement("CCD_MAX_X", "Max X", "%6.0f", 4032.0, 0.0, 10000.0, 0.0),
+            NumberElement("CCD_MAX_Y", "Max Y", "%6.0f", 3024.0, 0.0, 10000.0, 0.0),
+            NumberElement("CCD_PIXEL_SIZE", "Pixel Size", "%6.2f", 1.22, 0.0, 100.0, 0.0)
+        )
+        val prop = NumberVectorProperty(
+            device = "CCD Simulator",
+            name = "CCD_INFO",
+            label = "CCD Info",
+            group = "Image Info",
+            initialState = PropertyState.Ok,
+            perm = "ro",
+            elements = elements
+        )
+
+        val sw = StringWriter()
+        val writer = KtXmlWriter(sw)
+        prop.writeSetXml(writer)
+        writer.flush()
+        writer.close()
+        val xml = sw.toString()
+
+        assertTrue("Should contain setNumberVector", xml.contains("setNumberVector"))
+        assertFalse("Should NOT contain defNumberVector", xml.contains("defNumberVector"))
+        assertTrue("Should contain oneNumber", xml.contains("oneNumber"))
+        val oneNumberCount = Regex("oneNumber").findAll(xml).count()
+        assertEquals("Should have 3 oneNumber elements (6 tags)", 6, oneNumberCount)
+        assertWellFormedXml(xml)
+    }
+
+    @Test
+    fun `NumberVectorProperty getElement returns correct NumberElement`() {
+        val elements = mutableListOf(
+            NumberElement("CCD_MAX_X", "Max X", "%6.0f", 4032.0, 0.0, 10000.0, 0.0),
+            NumberElement("CCD_MAX_Y", "Max Y", "%6.0f", 3024.0, 0.0, 10000.0, 0.0)
+        )
+        val prop = NumberVectorProperty(
+            device = "CCD Simulator",
+            name = "CCD_INFO",
+            label = "CCD Info",
+            group = "Image Info",
+            initialState = PropertyState.Idle,
+            perm = "ro",
+            elements = elements
+        )
+
+        val elem = prop.getElement("CCD_MAX_X")
+        assertNotNull(elem)
+        assertEquals(4032.0, elem!!.value, 0.0001)
+    }
+
+    @Test
+    fun `NumberVectorProperty setElementValue updates value and emits update`() = runTest {
+        val elements = mutableListOf(
+            NumberElement("CCD_MAX_X", "Max X", "%6.0f", 4032.0, 0.0, 10000.0, 0.0)
+        )
+        val prop = NumberVectorProperty(
+            device = "CCD Simulator",
+            name = "CCD_INFO",
+            label = "CCD Info",
+            group = "Image Info",
+            initialState = PropertyState.Idle,
+            perm = "rw",
+            elements = elements
+        )
+
+        var received: IndiProperty? = null
+        val job = launch {
+            received = prop.updates.first()
+        }
+
+        prop.setElementValue("CCD_MAX_X", 8064.0)
+
+        job.join()
+        assertNotNull(received)
+        assertEquals(8064.0, prop.getElement("CCD_MAX_X")!!.value, 0.0001)
+    }
+
+    @Test
+    fun `NumberVectorProperty with perm ro serializes perm attribute in defNumberVector`() {
+        val elements = mutableListOf(
+            NumberElement("CCD_MAX_X", "Max X", "%6.0f", 4032.0, 0.0, 10000.0, 0.0)
+        )
+        val prop = NumberVectorProperty(
+            device = "CCD Simulator",
+            name = "CCD_INFO",
+            label = "CCD Info",
+            group = "Image Info",
+            initialState = PropertyState.Idle,
+            perm = "ro",
+            elements = elements
+        )
+
+        val xml = writePropertyToXml(prop)
+        assertTrue("Should contain perm=\"ro\"", xml.contains("perm=\"ro\""))
+    }
+
+    @Test
+    fun `NumberProperty gains perm field and serializes it`() {
+        val prop = NumberProperty(
+            device = "CCD Simulator",
+            name = "CCD_EXPOSURE",
+            label = "Exposure",
+            group = "Main Control",
+            initialState = PropertyState.Idle,
+            format = "%6.2f",
+            value = 1.0,
+            min = 0.001,
+            max = 3600.0,
+            step = 0.1,
+            perm = "rw"
+        )
+
+        val xml = writePropertyToXml(prop)
+        assertTrue("Should contain perm=\"rw\"", xml.contains("perm=\"rw\""))
+    }
+
+    @Test
+    fun `MockDevice implements IndiDevice interface`() {
+        val device: com.pocketscope.indi.device.IndiDevice = com.pocketscope.indi.device.MockDevice.instance
+        assertEquals("Mock Camera", device.deviceName)
+        assertTrue(device.properties.isNotEmpty())
+    }
 }
