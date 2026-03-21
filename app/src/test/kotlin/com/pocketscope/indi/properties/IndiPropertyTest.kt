@@ -3,7 +3,7 @@ package com.pocketscope.indi.properties
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
-import nl.adaptivity.xmlutil.XmlStreaming
+import nl.adaptivity.xmlutil.core.KtXmlWriter
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.StringWriter
@@ -152,7 +152,7 @@ class IndiPropertyTest {
 
     private fun writePropertyToXml(property: IndiProperty): String {
         val sw = StringWriter()
-        val writer = XmlStreaming.newWriter(sw)
+        val writer = KtXmlWriter(sw)
         property.writeXml(writer)
         writer.flush()
         writer.close()
