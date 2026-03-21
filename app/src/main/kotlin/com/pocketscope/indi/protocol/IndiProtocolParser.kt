@@ -76,8 +76,16 @@ class IndiProtocolParser(inputStream: InputStream) {
                     }
                     onElement(tagName, attributes, childElements)
                 } else {
-                    // Non-command tag (e.g., getProperties): no child elements
-                    onElement(tagName, attributes, emptyMap())
+                    // Non-command tag (e.g., getProperties, enableBLOB)
+                    // For tags with text content (like enableBLOB), capture it
+                    eventType = parser.next()
+                    val textElements = if (eventType == XmlPullParser.TEXT) {
+                        val text = parser.text.trim()
+                        if (text.isNotEmpty()) mapOf("__text__" to text) else emptyMap()
+                    } else {
+                        emptyMap()
+                    }
+                    onElement(tagName, attributes, textElements)
                 }
             }
             eventType = parser.next()

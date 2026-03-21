@@ -10,6 +10,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import org.junit.Assert.*
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import java.io.ByteArrayInputStream
 import java.io.ByteArrayOutputStream
 import java.io.PipedInputStream
@@ -32,6 +35,8 @@ class TestDevice(
     }
 }
 
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [29])
 class ClientSessionTest {
 
     private fun makeSwitch(device: String, name: String) = SwitchProperty(
@@ -78,7 +83,7 @@ class ClientSessionTest {
     @Test
     fun `session ignores unknown commands`() = runBlocking {
         val device = TestDevice("CCD", makeSwitch("CCD", "CONNECTION"))
-        val clientInput = "<enableBLOB device=\"CCD\">Also</enableBLOB>"
+        val clientInput = "<unknownCommand device=\"CCD\"/>"
         val inputStream = ByteArrayInputStream(clientInput.toByteArray())
         val outputStream = ByteArrayOutputStream()
 
@@ -249,5 +254,81 @@ class ClientSessionTest {
 
         assertEquals("Device should receive text command", 1, device.receivedCommands.size)
         assertEquals("SOME_TEXT", device.receivedCommands[0].first)
+    }
+
+    // --- enableBLOB tests ---
+
+    @Test
+    fun `enableBLOB sets blob mode for device`() = runBlocking {
+        val device = TestDevice("CCD", makeSwitch("CCD", "CONNECTION"))
+        val clientInput = "<enableBLOB device=\"CCD\">Also</enableBLOB>"
+        val inputStream = ByteArrayInputStream(clientInput.toByteArray())
+        val outputStream = ByteArrayOutputStream()
+
+        val session = ClientSession(inputStream, outputStream, listOf(device))
+        session.handleCommands()
+
+        // After enableBLOB Also, streamBlob should produce output
+        val testBytes = ByteArray(10) { it.toByte() }
+        session.streamBlob("CCD", testBytes)
+
+        val response = outputStream.toString("UTF-8")
+        assertTrue("Should contain setBLOBVector", response.contains("setBLOBVector"))
+        assertTrue("Should contain oneBLOB", response.contains("oneBLOB"))
+        assertTrue("Should contain size=\"10\"", response.contains("size=\"10\""))
+        assertTrue("Should contain format=\".fits\"", response.contains("format=\".fits\""))
+    }
+
+    @Test
+    fun `streamBlob outputs nothing when blobEnabled is Never (default)`() = runBlocking {
+        val device = TestDevice("CCD", makeSwitch("CCD", "CONNECTION"))
+        // No enableBLOB command sent
+        val clientInput = "<getProperties version=\"1.7\"/>"
+        val inputStream = ByteArrayInputStream(clientInput.toByteArray())
+        val outputStream = ByteArrayOutputStream()
+
+        val session = ClientSession(inputStream, outputStream, listOf(device))
+        session.handleCommands()
+
+        val beforeLen = outputStream.size()
+        val testBytes = ByteArray(10) { it.toByte() }
+        session.streamBlob("CCD", testBytes)
+
+        assertEquals("streamBlob should produce no additional output when Never",
+            beforeLen, outputStream.size())
+    }
+
+    @Test
+    fun `enableBLOB Only mode allows blob streaming`() = runBlocking {
+        val device = TestDevice("CCD", makeSwitch("CCD", "CONNECTION"))
+        val clientInput = "<enableBLOB device=\"CCD\">Only</enableBLOB>"
+        val inputStream = ByteArrayInputStream(clientInput.toByteArray())
+        val outputStream = ByteArrayOutputStream()
+
+        val session = ClientSession(inputStream, outputStream, listOf(device))
+        session.handleCommands()
+
+        val testBytes = ByteArray(5) { it.toByte() }
+        session.streamBlob("CCD", testBytes)
+
+        val response = outputStream.toString("UTF-8")
+        assertTrue("Should contain setBLOBVector for Only mode", response.contains("setBLOBVector"))
+    }
+
+    @Test
+    fun `enableBLOB Never mode blocks blob streaming`() = runBlocking {
+        val device = TestDevice("CCD", makeSwitch("CCD", "CONNECTION"))
+        val clientInput = "<enableBLOB device=\"CCD\">Never</enableBLOB>"
+        val inputStream = ByteArrayInputStream(clientInput.toByteArray())
+        val outputStream = ByteArrayOutputStream()
+
+        val session = ClientSession(inputStream, outputStream, listOf(device))
+        session.handleCommands()
+
+        val testBytes = ByteArray(5) { it.toByte() }
+        session.streamBlob("CCD", testBytes)
+
+        val response = outputStream.toString("UTF-8")
+        assertFalse("Should NOT contain setBLOBVector for Never mode", response.contains("setBLOBVector"))
     }
 }

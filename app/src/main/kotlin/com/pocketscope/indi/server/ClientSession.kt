@@ -2,6 +2,8 @@
 
 package com.pocketscope.indi.server
 
+import android.util.Base64
+import android.util.Base64OutputStream
 import com.pocketscope.indi.device.IndiDevice
 import com.pocketscope.indi.protocol.IndiProtocolParser
 import kotlinx.coroutines.Dispatchers
@@ -13,6 +15,9 @@ import nl.adaptivity.xmlutil.XmlStreaming
 import java.io.InputStream
 import java.io.OutputStream
 import java.io.OutputStreamWriter
+import java.time.Instant
+import java.time.ZoneOffset
+import java.time.format.DateTimeFormatter
 
 /**
  * Manages a single INDI client connection.
@@ -34,6 +39,9 @@ class ClientSession(
     private val devices: List<IndiDevice>
 ) {
     private val writer = OutputStreamWriter(outputStream, Charsets.UTF_8)
+
+    // Track BLOB enable state per device. Values: "Never" (default), "Also", "Only"
+    private val blobEnabled = mutableMapOf<String, String>()
 
     /**
      * Processes incoming INDI commands and broadcasts property updates
@@ -82,6 +90,11 @@ class ClientSession(
                             ?: return@parseStream
                         targetDevice.handleNewProperty(propertyName, elements)
                     }
+                    "enableBLOB" -> {
+                        val deviceName = attributes["device"] ?: return@parseStream
+                        val mode = elements["__text__"] ?: "Also"
+                        blobEnabled[deviceName] = mode
+                    }
                 }
             }
             // Parser returned = input stream closed, cancel broadcast
@@ -104,5 +117,39 @@ class ClientSession(
             }
         }
         writer.flush()
+    }
+
+    /**
+     * Streams a FITS file as a Base64-encoded INDI BLOB to this client.
+     *
+     * Only sends if enableBLOB state for this device is "Also" or "Only".
+     * Uses [Base64OutputStream] to stream Base64 encoding directly to TCP
+     * without holding the full encoded string in memory (IMG-05).
+     *
+     * The XML is written directly as text (not via XmlWriter) because the
+     * Base64 payload must be streamed between the oneBLOB tags without
+     * XML escaping.
+     */
+    fun streamBlob(deviceName: String, fitsBytes: ByteArray) {
+        val mode = blobEnabled[deviceName] ?: "Never"
+        if (mode == "Never") return
+
+        val timestamp = DateTimeFormatter.ISO_INSTANT.format(
+            Instant.now().atOffset(ZoneOffset.UTC)
+        )
+
+        synchronized(writer) {
+            writer.write("""<setBLOBVector device="$deviceName" name="CCD1" state="Ok" timestamp="$timestamp">""")
+            writer.write("""<oneBLOB name="CCD1" size="${fitsBytes.size}" format=".fits">""")
+            writer.flush()
+
+            // Stream Base64 directly to TCP -- never hold full encoded string (IMG-05)
+            val base64Stream = Base64OutputStream(outputStream, Base64.NO_WRAP)
+            fitsBytes.inputStream().copyTo(base64Stream, bufferSize = 4096)
+            base64Stream.close()  // Flushes final padding bytes
+
+            writer.write("</oneBLOB></setBLOBVector>")
+            writer.flush()
+        }
     }
 }
