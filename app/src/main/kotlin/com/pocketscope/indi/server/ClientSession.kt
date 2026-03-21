@@ -68,7 +68,7 @@ class ClientSession(
         // Run parser on IO dispatcher (blocks until stream closes)
         launch(Dispatchers.IO) {
             val parser = IndiProtocolParser(inputStream)
-            parser.parseStream { name, _ ->
+            parser.parseStream { name, attributes, elements ->
                 when (name) {
                     "getProperties" -> {
                         synchronized(writer) {
