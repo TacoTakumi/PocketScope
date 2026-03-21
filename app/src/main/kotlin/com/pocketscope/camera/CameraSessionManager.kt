@@ -23,7 +23,7 @@ import kotlin.coroutines.resumeWithException
 class CameraSessionManager(
     private val cameraManager: CameraManager,
     private val handler: Handler
-) {
+) : CameraSessionContract {
     private val mutex = Mutex()
     private var activeDevice: CameraDevice? = null
     private var activeLensId: String? = null
@@ -40,7 +40,7 @@ class CameraSessionManager(
      * @throws CameraAccessException if the camera cannot be opened
      */
     @Suppress("MissingPermission") // Permission checked at app level before reaching here
-    suspend fun switchToLens(physicalCameraId: String, logicalCameraId: String?): CameraDevice =
+    override suspend fun switchToLens(physicalCameraId: String, logicalCameraId: String?): CameraDevice =
         mutex.withLock {
             // If already on the requested lens, return the existing device
             if (activeLensId == physicalCameraId && activeDevice != null) {
@@ -66,12 +66,12 @@ class CameraSessionManager(
     /**
      * Returns the physical camera ID of the currently active lens, or null if none.
      */
-    fun getActiveLensId(): String? = activeLensId
+    override fun getActiveLensId(): String? = activeLensId
 
     /**
      * Closes the active camera device and clears all state.
      */
-    fun closeAll() {
+    override fun closeAll() {
         activeDevice?.close()
         activeDevice = null
         activeLensId = null
