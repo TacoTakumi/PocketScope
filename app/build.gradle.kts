@@ -45,6 +45,9 @@ dependencies {
     // XML Serialization (for INDI protocol XML generation)
     implementation("io.github.pdvrieze.xmlutil:core:0.90.3")
 
+    // XML Pull Parser (for JVM unit tests — Android has this built-in)
+    testImplementation("net.sf.kxml:kxml2:2.3.0")
+
     // Testing
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
