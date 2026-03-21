@@ -1,10 +1,14 @@
 package com.pocketscope.indi.server
 
+import com.pocketscope.indi.device.MockDevice
 import io.ktor.network.selector.SelectorManager
 import io.ktor.network.sockets.ServerSocket
 import io.ktor.network.sockets.Socket
 import io.ktor.network.sockets.aSocket
 import io.ktor.network.sockets.openReadChannel
+import io.ktor.network.sockets.openWriteChannel
+import io.ktor.utils.io.jvm.javaio.toInputStream
+import io.ktor.utils.io.jvm.javaio.toOutputStream
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
@@ -66,21 +70,25 @@ class IndiServer(
      * Handles a single connected INDI client.
      *
      * Sets TCP keepAlive on the accepted connection for WiFi resilience,
-     * then reads from the socket until the client disconnects.
-     * Will be expanded in subsequent plans to parse INDI XML commands
-     * and route them to device drivers.
+     * then delegates to [ClientSession] which uses [IndiProtocolParser]
+     * to process INDI XML commands and respond with property definitions
+     * from the global [MockDevice] singleton (D-04).
      */
     private suspend fun handleClient(socket: Socket) {
         try {
-            // Enable keepAlive on accepted connections for WiFi resilience
             enableKeepAlive(socket)
 
             val readChannel = socket.openReadChannel()
-            while (!readChannel.isClosedForRead) {
-                // Wait for data from the client; returns false when channel closes
-                if (!readChannel.awaitContent(1)) break
-                // Future: parse INDI XML commands from readChannel
-            }
+            val writeChannel = socket.openWriteChannel(autoFlush = true)
+            val inputStream = readChannel.toInputStream()
+            val outputStream = writeChannel.toOutputStream()
+
+            val session = ClientSession(
+                inputStream = inputStream,
+                outputStream = outputStream,
+                devices = listOf(MockDevice.instance)
+            )
+            session.handleCommands()
         } catch (_: Exception) {
             // Client disconnected or connection error
         } finally {
