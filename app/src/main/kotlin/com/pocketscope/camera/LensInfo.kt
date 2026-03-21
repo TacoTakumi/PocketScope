@@ -37,7 +37,8 @@ data class LensInfo(
     val exposureTimeRange: Range<Long>?, // nanoseconds, from SENSOR_INFO_EXPOSURE_TIME_RANGE
     val minFocusDistance: Float?,       // diopters (0.0 = infinity only, null = fixed focus)
     val maxDigitalZoom: Float?,        // from SCALER_AVAILABLE_MAX_DIGITAL_ZOOM
-    val activeArraySize: Rect          // from SENSOR_INFO_ACTIVE_ARRAY_SIZE
+    val activeArraySize: Rect,          // from SENSOR_INFO_ACTIVE_ARRAY_SIZE
+    val cfaArrangement: Int = 0          // Camera2 SENSOR_INFO_COLOR_FILTER_ARRANGEMENT constant (0=RGGB)
 ) {
     /** Human-readable lens type based on focal length relative to a reference set. */
     val lensType: String get() = when {
