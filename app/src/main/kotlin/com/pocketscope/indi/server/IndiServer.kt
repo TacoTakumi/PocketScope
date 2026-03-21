@@ -4,6 +4,7 @@ import android.hardware.camera2.CameraManager
 import android.os.Handler
 import com.pocketscope.camera.CameraSessionManager
 import com.pocketscope.camera.LensEnumerator
+import com.pocketscope.camera.RawCaptureSession
 import com.pocketscope.indi.device.IndiCameraDevice
 import com.pocketscope.indi.device.IndiDevice
 import com.pocketscope.indi.device.IndiFocuserDevice
@@ -24,6 +25,7 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.net.StandardSocketOptions
 import java.nio.channels.SocketChannel
+import java.util.concurrent.CopyOnWriteArrayList
 
 /**
  * INDI protocol TCP server.
@@ -56,8 +58,25 @@ class IndiServer(
     private val serverScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     private val sessionManager = CameraSessionManager(cameraManager, handler)
+    private val rawCaptureSession = RawCaptureSession(handler)
     private val lenses = LensEnumerator.enumerateLenses(cameraManager)
     private val focuserDevice = IndiFocuserDevice()
+
+    /** Active client sessions for BLOB broadcasting. Thread-safe for concurrent iteration. */
+    private val activeSessions = CopyOnWriteArrayList<ClientSession>()
+
+    /** Broadcasts FITS data to all active sessions that have enabled BLOBs. */
+    private val blobCallback: suspend (String, ByteArray) -> Unit = { deviceName, fitsBytes ->
+        for (session in activeSessions) {
+            try {
+                session.streamBlob(deviceName, fitsBytes)
+            } catch (_: Exception) {
+                // Session may have disconnected; streamBlob failure
+                // is non-fatal for other sessions
+            }
+        }
+    }
+
     private val cameraDevices = lenses.map { lensInfo ->
         IndiCameraDevice(
             lensInfo = lensInfo,
@@ -65,7 +84,9 @@ class IndiServer(
             scope = serverScope,
             onLensSwitch = { switchedLensInfo ->
                 focuserDevice.switchActiveLens(switchedLensInfo)
-            }
+            },
+            rawCaptureSession = rawCaptureSession,
+            blobCallback = blobCallback
         )
     }
     private val allDevices: List<IndiDevice> = cameraDevices + focuserDevice
@@ -121,7 +142,12 @@ class IndiServer(
                 outputStream = outputStream,
                 devices = allDevices
             )
-            session.handleCommands()
+            activeSessions.add(session)
+            try {
+                session.handleCommands()
+            } finally {
+                activeSessions.remove(session)
+            }
         } catch (_: Exception) {
             // Client disconnected or connection error
         } finally {
@@ -163,6 +189,7 @@ class IndiServer(
         serverSocket = null
         selectorManager?.close()
         selectorManager = null
+        activeSessions.clear()
         sessionManager.closeAll()
     }
 }
