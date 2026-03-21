@@ -49,6 +49,13 @@ sealed class IndiProperty(
     abstract fun writeXml(writer: XmlWriter)
 
     /**
+     * Serializes this property as a setXxxVector update message.
+     * Used to broadcast property changes to connected INDI clients.
+     * Each subclass produces the appropriate setXxxVector / oneXxx elements.
+     */
+    abstract fun writeSetXml(writer: XmlWriter)
+
+    /**
      * Writes the common vector-level attributes: device, name, label, group, state.
      */
     protected fun writeCommonAttributes(writer: XmlWriter) {
@@ -96,6 +103,20 @@ class TextProperty(
         writer.endTag(null, "defText", null)
 
         writer.endTag(null, "defTextVector", null)
+    }
+
+    override fun writeSetXml(writer: XmlWriter) {
+        writer.startTag(null, "setTextVector", null)
+        writer.attribute(null, "device", null, device)
+        writer.attribute(null, "name", null, name)
+        writer.attribute(null, "state", null, state.name)
+
+        writer.startTag(null, "oneText", null)
+        writer.attribute(null, "name", null, name)
+        writer.text(value)
+        writer.endTag(null, "oneText", null)
+
+        writer.endTag(null, "setTextVector", null)
     }
 }
 
@@ -153,6 +174,20 @@ class NumberProperty(
 
         writer.endTag(null, "defNumberVector", null)
     }
+
+    override fun writeSetXml(writer: XmlWriter) {
+        writer.startTag(null, "setNumberVector", null)
+        writer.attribute(null, "device", null, device)
+        writer.attribute(null, "name", null, name)
+        writer.attribute(null, "state", null, state.name)
+
+        writer.startTag(null, "oneNumber", null)
+        writer.attribute(null, "name", null, name)
+        writer.text(formatValue(value))
+        writer.endTag(null, "oneNumber", null)
+
+        writer.endTag(null, "setNumberVector", null)
+    }
 }
 
 /**
@@ -192,5 +227,21 @@ class SwitchProperty(
         }
 
         writer.endTag(null, "defSwitchVector", null)
+    }
+
+    override fun writeSetXml(writer: XmlWriter) {
+        writer.startTag(null, "setSwitchVector", null)
+        writer.attribute(null, "device", null, device)
+        writer.attribute(null, "name", null, name)
+        writer.attribute(null, "state", null, state.name)
+
+        for ((optName, isOn) in options) {
+            writer.startTag(null, "oneSwitch", null)
+            writer.attribute(null, "name", null, optName)
+            writer.text(if (isOn) "On" else "Off")
+            writer.endTag(null, "oneSwitch", null)
+        }
+
+        writer.endTag(null, "setSwitchVector", null)
     }
 }
