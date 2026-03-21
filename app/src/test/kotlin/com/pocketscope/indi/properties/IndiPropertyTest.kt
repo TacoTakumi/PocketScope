@@ -304,4 +304,93 @@ class IndiPropertyTest {
         val xml = writePropertyToXml(prop)
         assertWellFormedXml(xml)
     }
+
+    // --- writeSetXml tests ---
+
+    private fun writeSetPropertyToXml(property: IndiProperty): String {
+        val sw = StringWriter()
+        val writer = KtXmlWriter(sw)
+        property.writeSetXml(writer)
+        writer.flush()
+        writer.close()
+        return sw.toString()
+    }
+
+    @Test
+    fun `TextProperty writeSetXml produces setTextVector with oneText`() {
+        val prop = TextProperty(
+            device = "CCD Simulator",
+            name = "DRIVER_INFO",
+            label = "Driver Info",
+            group = "General",
+            initialState = PropertyState.Ok,
+            value = "PocketScope CCD"
+        )
+
+        val xml = writeSetPropertyToXml(prop)
+
+        assertTrue("Should contain setTextVector", xml.contains("setTextVector"))
+        assertFalse("Should NOT contain defTextVector", xml.contains("defTextVector"))
+        assertTrue("Should contain oneText", xml.contains("oneText"))
+        assertFalse("Should NOT contain defText", xml.contains("defText"))
+        assertTrue("Should contain device attribute", xml.contains("device=\"CCD Simulator\""))
+        assertTrue("Should contain name attribute", xml.contains("name=\"DRIVER_INFO\""))
+        assertTrue("Should contain state attribute", xml.contains("state=\"Ok\""))
+        assertTrue("Should contain the text value", xml.contains("PocketScope CCD"))
+        assertWellFormedXml(xml)
+    }
+
+    @Test
+    fun `NumberProperty writeSetXml produces setNumberVector with oneNumber`() {
+        val prop = NumberProperty(
+            device = "CCD Simulator",
+            name = "CCD_EXPOSURE",
+            label = "Exposure",
+            group = "Main Control",
+            initialState = PropertyState.Busy,
+            format = "%6.2f",
+            value = 1.5,
+            min = 0.001,
+            max = 3600.0,
+            step = 0.1
+        )
+
+        val xml = writeSetPropertyToXml(prop)
+
+        assertTrue("Should contain setNumberVector", xml.contains("setNumberVector"))
+        assertFalse("Should NOT contain defNumberVector", xml.contains("defNumberVector"))
+        assertTrue("Should contain oneNumber", xml.contains("oneNumber"))
+        assertFalse("Should NOT contain defNumber", xml.contains("defNumber"))
+        assertTrue("Should contain device attribute", xml.contains("device=\"CCD Simulator\""))
+        assertTrue("Should contain name attribute", xml.contains("name=\"CCD_EXPOSURE\""))
+        assertTrue("Should contain state attribute", xml.contains("state=\"Busy\""))
+        assertTrue("Should contain formatted value", xml.contains("1.50"))
+        assertWellFormedXml(xml)
+    }
+
+    @Test
+    fun `SwitchProperty writeSetXml produces setSwitchVector with oneSwitch`() {
+        val prop = SwitchProperty(
+            device = "CCD Simulator",
+            name = "CONNECTION",
+            label = "Connection",
+            group = "Main Control",
+            initialState = PropertyState.Ok,
+            rule = "OneOfMany",
+            options = mutableMapOf("CONNECT" to true, "DISCONNECT" to false)
+        )
+
+        val xml = writeSetPropertyToXml(prop)
+
+        assertTrue("Should contain setSwitchVector", xml.contains("setSwitchVector"))
+        assertFalse("Should NOT contain defSwitchVector", xml.contains("defSwitchVector"))
+        assertTrue("Should contain oneSwitch", xml.contains("oneSwitch"))
+        assertFalse("Should NOT contain defSwitch", xml.contains("defSwitch"))
+        assertTrue("Should contain device attribute", xml.contains("device=\"CCD Simulator\""))
+        assertTrue("Should contain name attribute", xml.contains("name=\"CONNECTION\""))
+        assertTrue("Should contain state attribute", xml.contains("state=\"Ok\""))
+        assertTrue("Should contain On", xml.contains("On"))
+        assertTrue("Should contain Off", xml.contains("Off"))
+        assertWellFormedXml(xml)
+    }
 }
