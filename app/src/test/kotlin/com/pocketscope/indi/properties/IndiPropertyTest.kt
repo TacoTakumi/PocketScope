@@ -544,6 +544,46 @@ class IndiPropertyTest {
         assertTrue("Should contain perm=\"rw\"", xml.contains("perm=\"rw\""))
     }
 
+    // --- Phase 3 Plan 01: BlobProperty ---
+
+    @Test
+    fun `BlobProperty generates valid defBLOBVector XML`() {
+        val prop = BlobProperty(
+            device = "CCD Main",
+            name = "CCD1",
+            label = "Image Data",
+            group = "Image Info",
+            initialState = PropertyState.Idle,
+            perm = "ro"
+        )
+
+        val xml = writePropertyToXml(prop)
+
+        assertTrue("Should contain defBLOBVector", xml.contains("defBLOBVector"))
+        assertTrue("Should contain device attribute", xml.contains("device=\"CCD Main\""))
+        assertTrue("Should contain name attribute", xml.contains("name=\"CCD1\""))
+        assertTrue("Should contain label attribute", xml.contains("label=\"Image Data\""))
+        assertTrue("Should contain group attribute", xml.contains("group=\"Image Info\""))
+        assertTrue("Should contain state attribute", xml.contains("state=\"Idle\""))
+        assertTrue("Should contain perm attribute", xml.contains("perm=\"ro\""))
+        assertTrue("Should contain defBLOB element", xml.contains("defBLOB"))
+        assertWellFormedXml(xml)
+    }
+
+    @Test
+    fun `BlobProperty writeSetXml produces empty output`() {
+        val prop = BlobProperty(
+            device = "CCD Main",
+            name = "CCD1",
+            label = "Image Data",
+            group = "Image Info",
+            initialState = PropertyState.Idle
+        )
+
+        val xml = writeSetPropertyToXml(prop)
+        assertTrue("writeSetXml should produce empty or minimal output", xml.isEmpty() || xml.isBlank())
+    }
+
     @Test
     fun `MockDevice implements IndiDevice interface`() {
         val device: com.pocketscope.indi.device.IndiDevice = com.pocketscope.indi.device.MockDevice.instance
