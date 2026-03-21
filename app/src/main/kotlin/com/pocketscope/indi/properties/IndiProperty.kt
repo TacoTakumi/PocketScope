@@ -143,7 +143,8 @@ class NumberProperty(
     value: Double,
     val min: Double,
     val max: Double,
-    val step: Double
+    val step: Double,
+    val perm: String = "rw"
 ) : IndiProperty(device, name, label, group, initialState) {
 
     var value: Double = value
@@ -161,6 +162,7 @@ class NumberProperty(
     override fun writeXml(writer: XmlWriter) {
         writer.startTag(null, "defNumberVector", null)
         writeCommonAttributes(writer)
+        writer.attribute(null, "perm", null, perm)
 
         writer.startTag(null, "defNumber", null)
         writer.attribute(null, "name", null, name)
@@ -210,12 +212,14 @@ class SwitchProperty(
     group: String,
     initialState: PropertyState,
     val rule: String,
-    val options: MutableMap<String, Boolean>
+    val options: MutableMap<String, Boolean>,
+    val perm: String = "rw"
 ) : IndiProperty(device, name, label, group, initialState) {
 
     override fun writeXml(writer: XmlWriter) {
         writer.startTag(null, "defSwitchVector", null)
         writeCommonAttributes(writer)
+        writer.attribute(null, "perm", null, perm)
         writer.attribute(null, "rule", null, rule)
 
         for ((optName, isOn) in options) {
@@ -243,5 +247,101 @@ class SwitchProperty(
         }
 
         writer.endTag(null, "setSwitchVector", null)
+    }
+}
+
+/**
+ * A single element within a [NumberVectorProperty].
+ *
+ * Represents one named numeric value with format, min/max/step constraints.
+ * Used for multi-element INDI properties like CCD_INFO (6 elements) and CCD_FRAME (4 elements).
+ */
+data class NumberElement(
+    val name: String,
+    val label: String,
+    val format: String,
+    var value: Double,
+    val min: Double,
+    val max: Double,
+    val step: Double
+)
+
+/**
+ * INDI Number Vector property - holds multiple named [NumberElement] values.
+ *
+ * Unlike [NumberProperty] which holds a single value, this class supports
+ * multi-element number properties required by the INDI CCD specification:
+ * - CCD_INFO: 6 elements (CCD_MAX_X, CCD_MAX_Y, CCD_PIXEL_SIZE, etc.)
+ * - CCD_FRAME: 4 elements (X, Y, WIDTH, HEIGHT)
+ * - CCD_EXPOSURE: 1 element (CCD_EXPOSURE_VALUE)
+ *
+ * Serializes as:
+ * ```xml
+ * <defNumberVector device="..." name="..." label="..." group="..." state="..." perm="...">
+ *   <defNumber name="..." label="..." format="..." min="..." max="..." step="...">value</defNumber>
+ *   ...
+ * </defNumberVector>
+ * ```
+ */
+class NumberVectorProperty(
+    device: String,
+    name: String,
+    label: String,
+    group: String,
+    initialState: PropertyState,
+    val perm: String,
+    val elements: MutableList<NumberElement>
+) : IndiProperty(device, name, label, group, initialState) {
+
+    /**
+     * Finds a [NumberElement] by its INDI name.
+     * @return the element, or null if not found
+     */
+    fun getElement(name: String): NumberElement? = elements.find { it.name == name }
+
+    /**
+     * Updates a named element's value and emits a property update.
+     * No-op if the element name is not found.
+     */
+    fun setElementValue(name: String, value: Double) {
+        val elem = getElement(name) ?: return
+        elem.value = value
+        emitUpdate()
+    }
+
+    override fun writeXml(writer: XmlWriter) {
+        writer.startTag(null, "defNumberVector", null)
+        writeCommonAttributes(writer)
+        writer.attribute(null, "perm", null, perm)
+
+        for (elem in elements) {
+            writer.startTag(null, "defNumber", null)
+            writer.attribute(null, "name", null, elem.name)
+            writer.attribute(null, "label", null, elem.label)
+            writer.attribute(null, "format", null, elem.format)
+            writer.attribute(null, "min", null, String.format(elem.format, elem.min))
+            writer.attribute(null, "max", null, String.format(elem.format, elem.max))
+            writer.attribute(null, "step", null, String.format(elem.format, elem.step))
+            writer.text(String.format(elem.format, elem.value))
+            writer.endTag(null, "defNumber", null)
+        }
+
+        writer.endTag(null, "defNumberVector", null)
+    }
+
+    override fun writeSetXml(writer: XmlWriter) {
+        writer.startTag(null, "setNumberVector", null)
+        writer.attribute(null, "device", null, device)
+        writer.attribute(null, "name", null, name)
+        writer.attribute(null, "state", null, state.name)
+
+        for (elem in elements) {
+            writer.startTag(null, "oneNumber", null)
+            writer.attribute(null, "name", null, elem.name)
+            writer.text(String.format(elem.format, elem.value))
+            writer.endTag(null, "oneNumber", null)
+        }
+
+        writer.endTag(null, "setNumberVector", null)
     }
 }

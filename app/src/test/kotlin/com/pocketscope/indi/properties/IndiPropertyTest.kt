@@ -416,10 +416,9 @@ class IndiPropertyTest {
         val xml = writePropertyToXml(prop)
 
         assertTrue("Should contain defNumberVector", xml.contains("defNumberVector"))
-        // Count defNumber occurrences
-        val defNumberCount = Regex("defNumber").findAll(xml).count()
-        // Each defNumber has open + close tag = 2 occurrences per element, so 6 total for 3 elements
-        assertEquals("Should have 3 defNumber elements (6 tags)", 6, defNumberCount)
+        // Count defNumber start tags (not defNumberVector) — account for namespace prefix (n1:defNumber)
+        val defNumberCount = Regex("""<\w*:?defNumber\s""").findAll(xml).count()
+        assertEquals("Should have 3 defNumber elements", 3, defNumberCount)
         assertTrue("Should contain CCD_MAX_X", xml.contains("CCD_MAX_X"))
         assertTrue("Should contain CCD_MAX_Y", xml.contains("CCD_MAX_Y"))
         assertTrue("Should contain CCD_PIXEL_SIZE", xml.contains("CCD_PIXEL_SIZE"))
@@ -453,8 +452,8 @@ class IndiPropertyTest {
         assertTrue("Should contain setNumberVector", xml.contains("setNumberVector"))
         assertFalse("Should NOT contain defNumberVector", xml.contains("defNumberVector"))
         assertTrue("Should contain oneNumber", xml.contains("oneNumber"))
-        val oneNumberCount = Regex("oneNumber").findAll(xml).count()
-        assertEquals("Should have 3 oneNumber elements (6 tags)", 6, oneNumberCount)
+        val oneNumberCount = Regex("""<\w*:?oneNumber\s""").findAll(xml).count()
+        assertEquals("Should have 3 oneNumber elements", 3, oneNumberCount)
         assertWellFormedXml(xml)
     }
 

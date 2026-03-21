@@ -11,16 +11,16 @@ import com.pocketscope.indi.properties.SwitchProperty
  * expect from every device. Global singleton per Context Decision D-04:
  * devices represent physical hardware and share state across all clients.
  */
-class MockDevice {
+class MockDevice : IndiDevice {
 
     companion object {
-        /** Global singleton — devices are shared across all client sessions (D-04). */
+        /** Global singleton -- devices are shared across all client sessions (D-04). */
         val instance = MockDevice()
     }
 
-    val deviceName = "Mock Camera"
+    override val deviceName = "Mock Camera"
 
-    val properties = mutableListOf<IndiProperty>()
+    override val properties = mutableListOf<IndiProperty>()
 
     private val connectionSwitch = SwitchProperty(
         device = deviceName,
@@ -29,10 +29,15 @@ class MockDevice {
         group = "Main",
         initialState = PropertyState.Idle,
         rule = "OneOfMany",
-        options = mutableMapOf("CONNECT" to false, "DISCONNECT" to true)
+        options = mutableMapOf("CONNECT" to false, "DISCONNECT" to true),
+        perm = "rw"
     )
 
     init {
         properties.add(connectionSwitch)
+    }
+
+    override fun handleNewProperty(propertyName: String, elements: Map<String, String>) {
+        // Mock: no-op for now
     }
 }
