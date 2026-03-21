@@ -1,0 +1,24 @@
+# Gradle
+.gradle/
+build/
+app/build/
+
+# Kotlin
+.kotlin/
+
+# IDE
+.idea/
+*.iml
+local.properties
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temporary extraction artifacts
+META-INF/
+io/
+
+# GSD crash/state logs
+gsd-crash
+gsd-state
