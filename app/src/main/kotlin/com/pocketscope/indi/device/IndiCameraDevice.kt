@@ -1,0 +1,271 @@
+package com.pocketscope.indi.device
+
+import com.pocketscope.camera.CameraSessionContract
+import com.pocketscope.camera.LensInfo
+import com.pocketscope.indi.properties.IndiProperty
+import com.pocketscope.indi.properties.NumberElement
+import com.pocketscope.indi.properties.NumberProperty
+import com.pocketscope.indi.properties.NumberVectorProperty
+import com.pocketscope.indi.properties.PropertyState
+import com.pocketscope.indi.properties.SwitchProperty
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.launch
+
+/**
+ * INDI CCD device for a single physical camera lens.
+ *
+ * Each rear lens (ultrawide, main, telephoto) becomes a separate INDI device
+ * with a full CCD property surface: exposure, gain, frame, info, temperature.
+ * Sensor metadata (pixel size, resolution, ISO range, exposure range) comes
+ * from [LensInfo] which is extracted from Camera2 [CameraCharacteristics] at
+ * runtime.
+ *
+ * Connection management delegates to [CameraSessionContract] which ensures
+ * only one Camera2 session is active at a time (per D-03).
+ *
+ * @param lensInfo per-lens metadata from Camera2
+ * @param sessionManager enforces one-active-session for Camera2
+ * @param scope coroutine scope for async Camera2 operations
+ * @param onLensSwitch callback invoked after successful lens connection (per D-14)
+ */
+class IndiCameraDevice(
+    private val lensInfo: LensInfo,
+    private val sessionManager: CameraSessionContract,
+    private val scope: CoroutineScope,
+    private val onLensSwitch: ((LensInfo) -> Unit)? = null
+) : IndiDevice {
+
+    override val deviceName: String = "PocketScope ${lensInfo.lensType}"
+
+    private val _properties = mutableListOf<IndiProperty>()
+    override val properties: List<IndiProperty> get() = _properties
+
+    var isConnected: Boolean = false
+        private set
+
+    // Exposure range: Camera2 nanoseconds -> INDI seconds (per pitfall 3)
+    private val exposureMinSec: Double =
+        lensInfo.exposureTimeRange?.lower?.toDouble()?.div(1_000_000_000.0) ?: 0.0001
+    private val exposureMaxSec: Double =
+        lensInfo.exposureTimeRange?.upper?.toDouble()?.div(1_000_000_000.0) ?: 30.0
+
+    // Gain range: direct ISO mapping (per D-07)
+    private val gainMin: Double = lensInfo.isoRange?.lower?.toDouble() ?: 100.0
+    private val gainMax: Double = lensInfo.isoRange?.upper?.toDouble() ?: 3200.0
+
+    // Property references for direct access in handlers
+    private val connectionProperty: SwitchProperty
+    private val exposureProperty: NumberProperty
+    private val gainProperty: NumberProperty
+    private val ccdInfoProperty: NumberVectorProperty
+    private val ccdFrameProperty: NumberVectorProperty
+    private val temperatureProperty: NumberProperty
+
+    init {
+        // CONNECTION switch
+        connectionProperty = SwitchProperty(
+            device = deviceName,
+            name = "CONNECTION",
+            label = "Connection",
+            group = "Main Control",
+            initialState = PropertyState.Idle,
+            rule = "OneOfMany",
+            options = mutableMapOf("CONNECT" to false, "DISCONNECT" to true),
+            perm = "rw"
+        )
+        _properties.add(connectionProperty)
+
+        // CCD_EXPOSURE: in seconds, converted from Camera2 nanoseconds
+        exposureProperty = NumberProperty(
+            device = deviceName,
+            name = "CCD_EXPOSURE",
+            label = "Expose",
+            group = "Main Control",
+            initialState = PropertyState.Idle,
+            format = "%g",
+            value = 1.0,
+            min = exposureMinSec,
+            max = exposureMaxSec,
+            step = 0.001,
+            perm = "rw"
+        )
+        _properties.add(exposureProperty)
+
+        // CCD_GAIN: direct ISO mapping
+        gainProperty = NumberProperty(
+            device = deviceName,
+            name = "CCD_GAIN",
+            label = "Gain",
+            group = "Main Control",
+            initialState = PropertyState.Idle,
+            format = "%.f",
+            value = 100.0,
+            min = gainMin,
+            max = gainMax,
+            step = 1.0,
+            perm = "rw"
+        )
+        _properties.add(gainProperty)
+
+        // CCD_INFO: read-only sensor metadata
+        ccdInfoProperty = NumberVectorProperty(
+            device = deviceName,
+            name = "CCD_INFO",
+            label = "CCD Information",
+            group = "Image Info",
+            initialState = PropertyState.Idle,
+            perm = "ro",
+            elements = mutableListOf(
+                NumberElement("CCD_MAX_X", "Max Width", "%.f",
+                    lensInfo.pixelArraySize.width.toDouble(), 0.0, 0.0, 0.0),
+                NumberElement("CCD_MAX_Y", "Max Height", "%.f",
+                    lensInfo.pixelArraySize.height.toDouble(), 0.0, 0.0, 0.0),
+                NumberElement("CCD_PIXEL_SIZE", "Pixel Size (um)", "%5.2f",
+                    maxOf(lensInfo.pixelSizeX, lensInfo.pixelSizeY).toDouble(), 0.0, 0.0, 0.0),
+                NumberElement("CCD_PIXEL_SIZE_X", "Pixel Size X", "%5.2f",
+                    lensInfo.pixelSizeX.toDouble(), 0.0, 0.0, 0.0),
+                NumberElement("CCD_PIXEL_SIZE_Y", "Pixel Size Y", "%5.2f",
+                    lensInfo.pixelSizeY.toDouble(), 0.0, 0.0, 0.0),
+                NumberElement("CCD_BITSPERPIXEL", "Bits per Pixel", "%.f",
+                    16.0, 0.0, 0.0, 0.0)
+            )
+        )
+        _properties.add(ccdInfoProperty)
+
+        // CCD_FRAME: subframe selection
+        ccdFrameProperty = NumberVectorProperty(
+            device = deviceName,
+            name = "CCD_FRAME",
+            label = "Frame",
+            group = "Image Settings",
+            initialState = PropertyState.Idle,
+            perm = "rw",
+            elements = mutableListOf(
+                NumberElement("X", "Left", "%.f",
+                    0.0, 0.0, lensInfo.activeArraySize.width().toDouble(), 1.0),
+                NumberElement("Y", "Top", "%.f",
+                    0.0, 0.0, lensInfo.activeArraySize.height().toDouble(), 1.0),
+                NumberElement("WIDTH", "Width", "%.f",
+                    lensInfo.activeArraySize.width().toDouble(), 1.0,
+                    lensInfo.activeArraySize.width().toDouble(), 1.0),
+                NumberElement("HEIGHT", "Height", "%.f",
+                    lensInfo.activeArraySize.height().toDouble(), 1.0,
+                    lensInfo.activeArraySize.height().toDouble(), 1.0)
+            )
+        )
+        _properties.add(ccdFrameProperty)
+
+        // CCD_TEMPERATURE: read-only, best-effort (per D-08)
+        temperatureProperty = NumberProperty(
+            device = deviceName,
+            name = "CCD_TEMPERATURE",
+            label = "Temperature (C)",
+            group = "Main Control",
+            initialState = PropertyState.Idle,
+            format = "%5.2f",
+            value = 0.0,
+            min = -50.0,
+            max = 50.0,
+            step = 0.0,
+            perm = "ro"
+        )
+        _properties.add(temperatureProperty)
+    }
+
+    override fun handleNewProperty(propertyName: String, elements: Map<String, String>) {
+        when (propertyName) {
+            "CONNECTION" -> handleConnection(elements)
+            "CCD_EXPOSURE" -> handleExposure(elements)
+            "CCD_GAIN" -> handleGain(elements)
+            "CCD_FRAME" -> handleFrame(elements)
+            else -> { /* unknown property, ignore */ }
+        }
+    }
+
+    /**
+     * Handles CONNECTION switch commands.
+     *
+     * CONNECT=On triggers a Camera2 session switch via [sessionManager].
+     * While switching, CONNECTION state is Busy (per D-04).
+     * On success, state becomes Ok and [onLensSwitch] is invoked (per D-14).
+     */
+    private fun handleConnection(elements: Map<String, String>) {
+        val connectValue = elements["CONNECT"]
+        if (connectValue == "On") {
+            connectionProperty.state = PropertyState.Busy
+            scope.launch {
+                try {
+                    sessionManager.switchToLens(lensInfo.physicalCameraId, lensInfo.logicalCameraId)
+                    isConnected = true
+                    connectionProperty.options["CONNECT"] = true
+                    connectionProperty.options["DISCONNECT"] = false
+                    connectionProperty.state = PropertyState.Ok
+                    onLensSwitch?.invoke(lensInfo)
+                } catch (e: Exception) {
+                    isConnected = false
+                    connectionProperty.state = PropertyState.Alert
+                }
+            }
+        } else if (elements["DISCONNECT"] == "On") {
+            isConnected = false
+            connectionProperty.options["CONNECT"] = false
+            connectionProperty.options["DISCONNECT"] = true
+            connectionProperty.state = PropertyState.Idle
+        }
+    }
+
+    /**
+     * Handles CCD_EXPOSURE value changes.
+     *
+     * Rejects commands when disconnected (per D-16) or out of range (per D-15).
+     */
+    private fun handleExposure(elements: Map<String, String>) {
+        if (!isConnected) {
+            exposureProperty.state = PropertyState.Alert
+            return
+        }
+        val valueStr = elements["CCD_EXPOSURE_VALUE"] ?: return
+        val value = valueStr.toDoubleOrNull() ?: return
+        if (value < exposureProperty.min || value > exposureProperty.max) {
+            exposureProperty.state = PropertyState.Alert
+            return
+        }
+        exposureProperty.value = value
+        exposureProperty.state = PropertyState.Ok
+    }
+
+    /**
+     * Handles CCD_GAIN value changes.
+     *
+     * Rejects commands when disconnected (per D-16) or out of range (per D-15).
+     */
+    private fun handleGain(elements: Map<String, String>) {
+        if (!isConnected) {
+            gainProperty.state = PropertyState.Alert
+            return
+        }
+        val valueStr = elements["GAIN"] ?: return
+        val value = valueStr.toDoubleOrNull() ?: return
+        if (value < gainProperty.min || value > gainProperty.max) {
+            gainProperty.state = PropertyState.Alert
+            return
+        }
+        gainProperty.value = value
+        gainProperty.state = PropertyState.Ok
+    }
+
+    /**
+     * Handles CCD_FRAME element updates.
+     *
+     * Updates X, Y, WIDTH, HEIGHT elements within bounds.
+     */
+    private fun handleFrame(elements: Map<String, String>) {
+        for ((elemName, valueStr) in elements) {
+            val value = valueStr.toDoubleOrNull() ?: continue
+            val elem = ccdFrameProperty.getElement(elemName) ?: continue
+            if (value < elem.min || value > elem.max) continue
+            ccdFrameProperty.setElementValue(elemName, value)
+        }
+        ccdFrameProperty.state = PropertyState.Ok
+    }
+}

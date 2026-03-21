@@ -20,14 +20,20 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 
 /**
  * Tests for [IndiCameraDevice] - INDI CCD device per physical lens.
  *
  * Uses a [FakeCameraSessionContract] to avoid Camera2 runtime dependencies.
  * Tests property creation, value handling, range validation, and connection logic.
+ * Runs under Robolectric for real Android SDK types (Size, Range, Rect).
  */
 @OptIn(ExperimentalCoroutinesApi::class)
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [29])
 class IndiCameraDeviceTest {
 
     private lateinit var testLensInfo: LensInfo
@@ -280,17 +286,16 @@ class FakeCameraSessionContract : CameraSessionContract {
     var lastPhysicalId: String? = null
     var lastLogicalId: String? = null
 
-    override suspend fun switchToLens(physicalCameraId: String, logicalCameraId: String?): CameraDevice {
+    override suspend fun switchToLens(physicalCameraId: String, logicalCameraId: String?): CameraDevice? {
         switchCallCount++
         lastPhysicalId = physicalCameraId
         lastLogicalId = logicalCameraId
         if (!shouldSucceed) {
             throw RuntimeException("Fake camera error")
         }
-        // Return a mock-like null cast -- tests only verify INDI property behavior,
-        // not CameraDevice usage. The returned device is stored but never used in tests.
-        @Suppress("UNCHECKED_CAST")
-        return null as CameraDevice
+        // Return null -- tests only verify INDI property behavior,
+        // not CameraDevice usage.
+        return null
     }
 
     override fun getActiveLensId(): String? = lastPhysicalId

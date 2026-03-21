@@ -15,9 +15,9 @@ interface CameraSessionContract {
      *
      * @param physicalCameraId the physical camera ID for this lens
      * @param logicalCameraId the logical camera ID to open (if non-null)
-     * @return the opened [CameraDevice]
+     * @return the opened [CameraDevice], or null in test contexts
      */
-    suspend fun switchToLens(physicalCameraId: String, logicalCameraId: String?): CameraDevice
+    suspend fun switchToLens(physicalCameraId: String, logicalCameraId: String?): CameraDevice?
 
     /**
      * Returns the physical camera ID of the currently active lens, or null.

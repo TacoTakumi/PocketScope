@@ -40,7 +40,7 @@ class CameraSessionManager(
      * @throws CameraAccessException if the camera cannot be opened
      */
     @Suppress("MissingPermission") // Permission checked at app level before reaching here
-    override suspend fun switchToLens(physicalCameraId: String, logicalCameraId: String?): CameraDevice =
+    override suspend fun switchToLens(physicalCameraId: String, logicalCameraId: String?): CameraDevice? =
         mutex.withLock {
             // If already on the requested lens, return the existing device
             if (activeLensId == physicalCameraId && activeDevice != null) {
