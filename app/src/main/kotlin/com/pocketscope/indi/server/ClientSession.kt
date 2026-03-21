@@ -75,6 +75,13 @@ class ClientSession(
                             sendPropertyDefinitions()
                         }
                     }
+                    "newNumberVector", "newSwitchVector", "newTextVector" -> {
+                        val deviceName = attributes["device"] ?: return@parseStream
+                        val propertyName = attributes["name"] ?: return@parseStream
+                        val targetDevice = devices.find { it.deviceName == deviceName }
+                            ?: return@parseStream
+                        targetDevice.handleNewProperty(propertyName, elements)
+                    }
                 }
             }
             // Parser returned = input stream closed, cancel broadcast
