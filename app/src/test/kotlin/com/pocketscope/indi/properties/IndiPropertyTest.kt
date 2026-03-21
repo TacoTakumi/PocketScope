@@ -3,8 +3,13 @@ package com.pocketscope.indi.properties
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
+import nl.adaptivity.xmlutil.XmlStreaming
 import org.junit.Assert.*
 import org.junit.Test
+import java.io.StringWriter
+import javax.xml.parsers.DocumentBuilderFactory
+import org.xml.sax.InputSource
+import java.io.StringReader
 
 /**
  * Tests for INDI Property domain models and Flow-based update emission.
@@ -141,5 +146,162 @@ class IndiPropertyTest {
         job.join()
         assertNotNull(received)
         assertEquals(PropertyState.Busy, received!!.state)
+    }
+
+    // --- Task 2: XML Serialization & Formatting ---
+
+    private fun writePropertyToXml(property: IndiProperty): String {
+        val sw = StringWriter()
+        val writer = XmlStreaming.newWriter(sw)
+        property.writeXml(writer)
+        writer.flush()
+        writer.close()
+        return sw.toString()
+    }
+
+    private fun assertWellFormedXml(xml: String) {
+        try {
+            val factory = DocumentBuilderFactory.newInstance()
+            val builder = factory.newDocumentBuilder()
+            builder.parse(InputSource(StringReader(xml)))
+        } catch (e: Exception) {
+            fail("XML is not well-formed: ${e.message}\nXML was: $xml")
+        }
+    }
+
+    @Test
+    fun `NumberProperty generates valid INDI XML`() {
+        val prop = NumberProperty(
+            device = "CCD Simulator",
+            name = "CCD_EXPOSURE",
+            label = "Exposure",
+            group = "Main Control",
+            initialState = PropertyState.Idle,
+            format = "%6.2f",
+            value = 1.5,
+            min = 0.001,
+            max = 3600.0,
+            step = 0.1
+        )
+
+        val xml = writePropertyToXml(prop)
+
+        // Should contain the defNumberVector wrapper
+        assertTrue("Should contain defNumberVector", xml.contains("defNumberVector"))
+        assertTrue("Should contain device attribute", xml.contains("device=\"CCD Simulator\""))
+        assertTrue("Should contain name attribute", xml.contains("name=\"CCD_EXPOSURE\""))
+        assertTrue("Should contain defNumber element", xml.contains("defNumber"))
+    }
+
+    @Test
+    fun `NumberProperty formats doubles strictly per INDI format`() {
+        val prop = NumberProperty(
+            device = "CCD Simulator",
+            name = "CCD_EXPOSURE",
+            label = "Exposure",
+            group = "Main Control",
+            initialState = PropertyState.Idle,
+            format = "%6.2f",
+            value = 1.5,
+            min = 0.001,
+            max = 3600.0,
+            step = 0.1
+        )
+
+        val xml = writePropertyToXml(prop)
+
+        // With format "%6.2f", 1.5 should be formatted as "  1.50" (6 chars, 2 decimals)
+        assertTrue("Should contain strictly formatted number", xml.contains("1.50"))
+        // Should NOT contain "1.5" without trailing zero (exact format matters)
+        assertFalse("Should not have loosely formatted 1.5 without padding",
+            xml.contains(">1.5<"))
+    }
+
+    @Test
+    fun `TextProperty generates valid INDI XML`() {
+        val prop = TextProperty(
+            device = "CCD Simulator",
+            name = "DRIVER_INFO",
+            label = "Driver Info",
+            group = "General",
+            initialState = PropertyState.Ok,
+            value = "PocketScope CCD"
+        )
+
+        val xml = writePropertyToXml(prop)
+
+        assertTrue("Should contain defTextVector", xml.contains("defTextVector"))
+        assertTrue("Should contain device attribute", xml.contains("device=\"CCD Simulator\""))
+        assertTrue("Should contain the text value", xml.contains("PocketScope CCD"))
+    }
+
+    @Test
+    fun `SwitchProperty generates valid INDI XML`() {
+        val prop = SwitchProperty(
+            device = "CCD Simulator",
+            name = "CONNECTION",
+            label = "Connection",
+            group = "Main Control",
+            initialState = PropertyState.Idle,
+            rule = "OneOfMany",
+            options = mutableMapOf("CONNECT" to true, "DISCONNECT" to false)
+        )
+
+        val xml = writePropertyToXml(prop)
+
+        assertTrue("Should contain defSwitchVector", xml.contains("defSwitchVector"))
+        assertTrue("Should contain rule attribute", xml.contains("rule=\"OneOfMany\""))
+        assertTrue("Should contain On state", xml.contains("On"))
+        assertTrue("Should contain Off state", xml.contains("Off"))
+    }
+
+    @Test
+    fun `generated XML is well-formed`() {
+        val prop = NumberProperty(
+            device = "CCD Simulator",
+            name = "CCD_EXPOSURE",
+            label = "Exposure",
+            group = "Main Control",
+            initialState = PropertyState.Idle,
+            format = "%6.2f",
+            value = 1.5,
+            min = 0.001,
+            max = 3600.0,
+            step = 0.1
+        )
+
+        val xml = writePropertyToXml(prop)
+        assertWellFormedXml(xml)
+    }
+
+    @Test
+    fun `TextProperty XML is well-formed`() {
+        val prop = TextProperty(
+            device = "CCD Simulator",
+            name = "DRIVER_INFO",
+            label = "Driver Info",
+            group = "General",
+            initialState = PropertyState.Ok,
+            value = "PocketScope CCD"
+        )
+
+        val xml = writePropertyToXml(prop)
+        assertWellFormedXml(xml)
+    }
+
+    @Test
+    fun `SwitchProperty XML is well-formed`() {
+        val prop = SwitchProperty(
+            device = "CCD Simulator",
+            name = "CONNECTION",
+            label = "Connection",
+            group = "Main Control",
+            initialState = PropertyState.Idle,
+            rule = "OneOfMany",
+            options = mutableMapOf("CONNECT" to true, "DISCONNECT" to false)
+        )
+
+        val xml = writePropertyToXml(prop)
+        assertWellFormedXml(xml)
     }
 }
