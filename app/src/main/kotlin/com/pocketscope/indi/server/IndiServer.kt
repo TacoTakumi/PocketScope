@@ -1,6 +1,12 @@
 package com.pocketscope.indi.server
 
-import com.pocketscope.indi.device.MockDevice
+import android.hardware.camera2.CameraManager
+import android.os.Handler
+import com.pocketscope.camera.CameraSessionManager
+import com.pocketscope.camera.LensEnumerator
+import com.pocketscope.indi.device.IndiCameraDevice
+import com.pocketscope.indi.device.IndiDevice
+import com.pocketscope.indi.device.IndiFocuserDevice
 import io.ktor.network.selector.SelectorManager
 import io.ktor.network.sockets.ServerSocket
 import io.ktor.network.sockets.Socket
@@ -9,8 +15,10 @@ import io.ktor.network.sockets.openReadChannel
 import io.ktor.network.sockets.openWriteChannel
 import io.ktor.utils.io.jvm.javaio.toInputStream
 import io.ktor.utils.io.jvm.javaio.toOutputStream
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -24,11 +32,19 @@ import java.nio.channels.SocketChannel
  * astronomy software such as KStars/Ekos. Each connected client is handled
  * in its own coroutine.
  *
+ * At construction, enumerates all rear-facing camera lenses via [LensEnumerator],
+ * creates one [IndiCameraDevice] per lens plus a single [IndiFocuserDevice].
+ * Each camera device's onLensSwitch callback is wired to
+ * [IndiFocuserDevice.switchActiveLens] so that connecting a CCD device resets
+ * the focuser position (per D-14).
+ *
  * Socket configuration:
  * - reuseAddress=true on the server socket for quick restarts
  * - keepAlive=true on accepted client connections for WiFi resilience
  */
 class IndiServer(
+    private val cameraManager: CameraManager,
+    private val handler: Handler,
     private val port: Int = DEFAULT_PORT,
     private val host: String = "0.0.0.0"
 ) {
@@ -36,6 +52,23 @@ class IndiServer(
         /** Standard INDI protocol port. */
         const val DEFAULT_PORT = 7624
     }
+
+    private val serverScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    private val sessionManager = CameraSessionManager(cameraManager, handler)
+    private val lenses = LensEnumerator.enumerateLenses(cameraManager)
+    private val focuserDevice = IndiFocuserDevice()
+    private val cameraDevices = lenses.map { lensInfo ->
+        IndiCameraDevice(
+            lensInfo = lensInfo,
+            sessionManager = sessionManager,
+            scope = serverScope,
+            onLensSwitch = { switchedLensInfo ->
+                focuserDevice.switchActiveLens(switchedLensInfo)
+            }
+        )
+    }
+    private val allDevices: List<IndiDevice> = cameraDevices + focuserDevice
 
     private var selectorManager: SelectorManager? = null
     private var serverSocket: ServerSocket? = null
@@ -72,7 +105,7 @@ class IndiServer(
      * Sets TCP keepAlive on the accepted connection for WiFi resilience,
      * then delegates to [ClientSession] which uses [IndiProtocolParser]
      * to process INDI XML commands and respond with property definitions
-     * from the global [MockDevice] singleton (D-04).
+     * from all registered devices.
      */
     private suspend fun handleClient(socket: Socket) {
         try {
@@ -86,7 +119,7 @@ class IndiServer(
             val session = ClientSession(
                 inputStream = inputStream,
                 outputStream = outputStream,
-                devices = listOf(MockDevice.instance)
+                devices = allDevices
             )
             session.handleCommands()
         } catch (_: Exception) {
@@ -130,5 +163,6 @@ class IndiServer(
         serverSocket = null
         selectorManager?.close()
         selectorManager = null
+        sessionManager.closeAll()
     }
 }

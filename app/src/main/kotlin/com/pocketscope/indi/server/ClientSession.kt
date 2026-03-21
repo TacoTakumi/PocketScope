@@ -2,7 +2,7 @@
 
 package com.pocketscope.indi.server
 
-import com.pocketscope.indi.device.MockDevice
+import com.pocketscope.indi.device.IndiDevice
 import com.pocketscope.indi.protocol.IndiProtocolParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -31,7 +31,7 @@ import java.io.OutputStreamWriter
 class ClientSession(
     private val inputStream: InputStream,
     private val outputStream: OutputStream,
-    private val devices: List<MockDevice>
+    private val devices: List<IndiDevice>
 ) {
     private val writer = OutputStreamWriter(outputStream, Charsets.UTF_8)
 
