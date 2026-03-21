@@ -48,6 +48,9 @@ dependencies {
     // Async / Concurrency
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
 
+    // FITS Image Generation (raw Bayer to FITS conversion)
+    implementation("gov.nasa.gsfc.heasarc:nom-tam-fits:1.21.2")
+
     // XML Serialization (for INDI protocol XML generation)
     implementation("io.github.pdvrieze.xmlutil:core:0.90.3")
 
