@@ -2,6 +2,10 @@ package com.pocketscope.indi.device
 
 import com.pocketscope.camera.CameraSessionContract
 import com.pocketscope.camera.LensInfo
+import com.pocketscope.camera.RawCaptureSession
+import com.pocketscope.imaging.BayerPattern
+import com.pocketscope.imaging.FitsConverter
+import com.pocketscope.indi.properties.BlobProperty
 import com.pocketscope.indi.properties.IndiProperty
 import com.pocketscope.indi.properties.NumberElement
 import com.pocketscope.indi.properties.NumberProperty
@@ -9,7 +13,9 @@ import com.pocketscope.indi.properties.NumberVectorProperty
 import com.pocketscope.indi.properties.PropertyState
 import com.pocketscope.indi.properties.SwitchProperty
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 /**
  * INDI CCD device for a single physical camera lens.
@@ -32,7 +38,9 @@ class IndiCameraDevice(
     private val lensInfo: LensInfo,
     private val sessionManager: CameraSessionContract,
     private val scope: CoroutineScope,
-    private val onLensSwitch: ((LensInfo) -> Unit)? = null
+    private val onLensSwitch: ((LensInfo) -> Unit)? = null,
+    private val rawCaptureSession: RawCaptureSession? = null,
+    private val blobCallback: (suspend (deviceName: String, fitsBytes: ByteArray) -> Unit)? = null
 ) : IndiDevice {
 
     override val deviceName: String = "PocketScope ${lensInfo.lensType}"
@@ -53,6 +61,9 @@ class IndiCameraDevice(
     private val gainMin: Double = lensInfo.isoRange?.lower?.toDouble() ?: 100.0
     private val gainMax: Double = lensInfo.isoRange?.upper?.toDouble() ?: 3200.0
 
+    // Bayer pattern string computed from Camera2 CFA arrangement
+    private val bayerPattern: String = BayerPattern.fromCamera2(lensInfo.cfaArrangement)
+
     // Property references for direct access in handlers
     private val connectionProperty: SwitchProperty
     private val exposureProperty: NumberProperty
@@ -60,6 +71,7 @@ class IndiCameraDevice(
     private val ccdInfoProperty: NumberVectorProperty
     private val ccdFrameProperty: NumberVectorProperty
     private val temperatureProperty: NumberProperty
+    private val blobProperty: BlobProperty
 
     init {
         // CONNECTION switch
@@ -170,6 +182,17 @@ class IndiCameraDevice(
             perm = "ro"
         )
         _properties.add(temperatureProperty)
+
+        // CCD1: BLOB property for image data
+        blobProperty = BlobProperty(
+            device = deviceName,
+            name = "CCD1",
+            label = "Image Data",
+            group = "Image Info",
+            initialState = PropertyState.Idle,
+            perm = "ro"
+        )
+        _properties.add(blobProperty)
     }
 
     override fun handleNewProperty(propertyName: String, elements: Map<String, String>) {
@@ -215,9 +238,12 @@ class IndiCameraDevice(
     }
 
     /**
-     * Handles CCD_EXPOSURE value changes.
+     * Handles CCD_EXPOSURE value changes and triggers the full capture pipeline.
      *
      * Rejects commands when disconnected (per D-16) or out of range (per D-15).
+     * On valid exposure: sets Busy state, captures via Camera2, converts to FITS
+     * on Default dispatcher, streams BLOB via callback on IO dispatcher, then
+     * sets Ok state. On failure, sets Alert state.
      */
     private fun handleExposure(elements: Map<String, String>) {
         if (!isConnected) {
@@ -225,13 +251,56 @@ class IndiCameraDevice(
             return
         }
         val valueStr = elements["CCD_EXPOSURE_VALUE"] ?: return
-        val value = valueStr.toDoubleOrNull() ?: return
-        if (value < exposureProperty.min || value > exposureProperty.max) {
+        val seconds = valueStr.toDoubleOrNull() ?: return
+        if (seconds < exposureProperty.min || seconds > exposureProperty.max) {
             exposureProperty.state = PropertyState.Alert
             return
         }
-        exposureProperty.value = value
-        exposureProperty.state = PropertyState.Ok
+
+        exposureProperty.value = seconds
+        exposureProperty.state = PropertyState.Busy  // Tell client exposure is in progress
+
+        scope.launch {
+            try {
+                // 1. Capture raw image via Camera2
+                val exposureNanos = (seconds * 1_000_000_000L).toLong()
+                val isoValue = gainProperty.value.toInt()
+
+                val cameraDevice = sessionManager.switchToLens(
+                    lensInfo.physicalCameraId, lensInfo.logicalCameraId
+                ) ?: throw IllegalStateException("No camera device available")
+
+                val captureResult = rawCaptureSession?.capture(
+                    cameraDevice, lensInfo, exposureNanos, isoValue
+                ) ?: throw IllegalStateException("RawCaptureSession not configured")
+
+                // 2. Convert raw bytes to FITS (on Default dispatcher = CPU-bound)
+                val fitsBytes = withContext(Dispatchers.Default) {
+                    FitsConverter.buildFits(
+                        rawBytes = captureResult.rawBytes,
+                        width = captureResult.width,
+                        height = captureResult.height,
+                        pixelSizeX = lensInfo.pixelSizeX,
+                        pixelSizeY = lensInfo.pixelSizeY,
+                        focalLength = lensInfo.focalLength,
+                        exposureTimeSec = seconds,
+                        isoGain = isoValue,
+                        bayerPattern = bayerPattern
+                    )
+                }
+                // captureResult.rawBytes can now be GC'd
+
+                // 3. Stream BLOB to clients (on IO dispatcher)
+                withContext(Dispatchers.IO) {
+                    blobCallback?.invoke(deviceName, fitsBytes)
+                }
+
+                exposureProperty.value = 0.0  // Remaining exposure time = 0
+                exposureProperty.state = PropertyState.Ok
+            } catch (e: Exception) {
+                exposureProperty.state = PropertyState.Alert
+            }
+        }
     }
 
     /**
