@@ -26,4 +26,26 @@ class IndiProtocolParser(inputStream: InputStream) {
         parser = XmlPullParserFactory.newInstance().newPullParser()
         parser.setInput(combined, "UTF-8")
     }
+
+    /**
+     * Reads the XML stream, invoking [onElement] for each START_TAG encountered
+     * (except the synthetic `<indi>` root). Attributes are collected into a Map.
+     *
+     * This will block on the underlying InputStream when no data is available,
+     * making it suitable for use on a coroutine dispatcher (Dispatchers.IO).
+     */
+    fun parseStream(onElement: (name: String, attributes: Map<String, String>) -> Unit) {
+        var eventType = parser.eventType
+        while (eventType != XmlPullParser.END_DOCUMENT) {
+            if (eventType == XmlPullParser.START_TAG && parser.name != "indi") {
+                val attributes = buildMap {
+                    for (i in 0 until parser.attributeCount) {
+                        put(parser.getAttributeName(i), parser.getAttributeValue(i))
+                    }
+                }
+                onElement(parser.name, attributes)
+            }
+            eventType = parser.next()
+        }
+    }
 }
