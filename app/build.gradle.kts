@@ -1,6 +1,7 @@
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
+    id("org.jetbrains.kotlin.plugin.compose")
 }
 
 android {
@@ -39,6 +40,10 @@ android {
             isReturnDefaultValues = true
         }
     }
+
+    buildFeatures {
+        compose = true
+    }
 }
 
 dependencies {
@@ -56,6 +61,20 @@ dependencies {
 
     // XML Pull Parser (for JVM unit tests — Android has this built-in)
     testImplementation("net.sf.kxml:kxml2:2.3.0")
+
+    // Compose BOM
+    val composeBom = platform("androidx.compose:compose-bom:2026.03.00")
+    implementation(composeBom)
+
+    // Compose UI
+    implementation("androidx.compose.ui:ui")
+    implementation("androidx.compose.material3:material3")
+    implementation("androidx.compose.ui:ui-tooling-preview")
+    debugImplementation("androidx.compose.ui:ui-tooling")
+
+    // Activity + Lifecycle for Compose
+    implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.0")
 
     // Testing
     testImplementation("junit:junit:4.13.2")
