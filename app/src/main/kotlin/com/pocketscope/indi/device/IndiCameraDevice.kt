@@ -12,6 +12,8 @@ import com.pocketscope.indi.properties.NumberProperty
 import com.pocketscope.indi.properties.NumberVectorProperty
 import com.pocketscope.indi.properties.PropertyState
 import com.pocketscope.indi.properties.SwitchProperty
+import com.pocketscope.indi.properties.TextElement
+import com.pocketscope.indi.properties.TextVectorProperty
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -86,6 +88,22 @@ class IndiCameraDevice(
             perm = "rw"
         )
         _properties.add(connectionProperty)
+
+        // DRIVER_INFO: required by Ekos to identify device type
+        _properties.add(TextVectorProperty(
+            device = deviceName,
+            name = "DRIVER_INFO",
+            label = "Driver Info",
+            group = "General Info",
+            initialState = PropertyState.Idle,
+            perm = "ro",
+            elements = listOf(
+                TextElement("DRIVER_NAME", "Name", deviceName),
+                TextElement("DRIVER_EXEC", "Exec", "pocketscope"),
+                TextElement("DRIVER_VERSION", "Version", "1.0"),
+                TextElement("DRIVER_INTERFACE", "Interface", "2")  // CCD_INTERFACE
+            )
+        ))
 
         // CCD_EXPOSURE: in seconds, converted from Camera2 nanoseconds
         exposureProperty = NumberProperty(

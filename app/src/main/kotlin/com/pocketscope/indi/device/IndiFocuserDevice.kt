@@ -102,6 +102,20 @@ class IndiFocuserDevice : IndiDevice {
 
     init {
         _properties.add(connectionSwitch)
+        _properties.add(TextVectorProperty(
+            device = deviceName,
+            name = "DRIVER_INFO",
+            label = "Driver Info",
+            group = "General Info",
+            initialState = PropertyState.Idle,
+            perm = "ro",
+            elements = listOf(
+                TextElement("DRIVER_NAME", "Name", deviceName),
+                TextElement("DRIVER_EXEC", "Exec", "pocketscope"),
+                TextElement("DRIVER_VERSION", "Version", "1.0"),
+                TextElement("DRIVER_INTERFACE", "Interface", "8")  // FOCUSER_INTERFACE
+            )
+        ))
         _properties.add(absFocusPosition)
         _properties.add(relFocusPosition)
         _properties.add(focusMax)

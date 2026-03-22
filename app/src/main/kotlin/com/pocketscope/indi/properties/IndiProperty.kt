@@ -369,3 +369,64 @@ class NumberVectorProperty(
         writer.endElement("setNumberVector")
     }
 }
+
+/**
+ * A single element within a [TextVectorProperty].
+ */
+data class TextElement(
+    val name: String,
+    val label: String,
+    var value: String
+)
+
+/**
+ * INDI Text Vector property - holds multiple named [TextElement] values.
+ *
+ * Used for multi-element text properties like DRIVER_INFO.
+ */
+class TextVectorProperty(
+    device: String,
+    name: String,
+    label: String,
+    group: String,
+    initialState: PropertyState,
+    val perm: String = "ro",
+    val elements: List<TextElement>
+) : IndiProperty(device, name, label, group, initialState) {
+
+    override fun writeXml(writer: IndiXmlWriter) {
+        writer.startElement("defTextVector")
+        writeCommonAttributes(writer)
+        writer.attribute("perm", perm)
+        writer.closeStartTag()
+
+        for (elem in elements) {
+            writer.startElement("defText")
+            writer.attribute("name", elem.name)
+            writer.attribute("label", elem.label)
+            writer.closeStartTag()
+            writer.text(elem.value)
+            writer.endElement("defText")
+        }
+
+        writer.endElement("defTextVector")
+    }
+
+    override fun writeSetXml(writer: IndiXmlWriter) {
+        writer.startElement("setTextVector")
+        writer.attribute("device", device)
+        writer.attribute("name", name)
+        writer.attribute("state", state.name)
+        writer.closeStartTag()
+
+        for (elem in elements) {
+            writer.startElement("oneText")
+            writer.attribute("name", elem.name)
+            writer.closeStartTag()
+            writer.text(elem.value)
+            writer.endElement("oneText")
+        }
+
+        writer.endElement("setTextVector")
+    }
+}
