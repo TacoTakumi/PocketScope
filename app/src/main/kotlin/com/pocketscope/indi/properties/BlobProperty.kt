@@ -1,7 +1,5 @@
 package com.pocketscope.indi.properties
 
-import nl.adaptivity.xmlutil.XmlWriter
-
 /**
  * INDI BLOB (Binary Large OBject) property type.
  *
@@ -17,7 +15,7 @@ import nl.adaptivity.xmlutil.XmlWriter
  * Serializes as:
  * ```xml
  * <defBLOBVector device="..." name="..." label="..." group="..." state="..." perm="ro">
- *   <defBLOB name="..." label="..."/>
+ *   <defBLOB name="..." label="..."></defBLOB>
  * </defBLOBVector>
  * ```
  */
@@ -30,20 +28,19 @@ class BlobProperty(
     val perm: String = "ro"
 ) : IndiProperty(device, name, label, group, initialState) {
 
-    override fun writeXml(writer: XmlWriter) {
-        writer.startTag(null, "defBLOBVector", null)
+    override fun writeXml(writer: IndiXmlWriter) {
+        writer.startElement("defBLOBVector")
         writeCommonAttributes(writer)
-        writer.attribute(null, "perm", null, perm)
+        writer.attribute("perm", perm)
+        writer.closeStartTag()
 
-        writer.startTag(null, "defBLOB", null)
-        writer.attribute(null, "name", null, name)
-        writer.attribute(null, "label", null, label)
-        writer.endTag(null, "defBLOB", null)
+        // Must use open+close tags, not self-closing — KStars rejects <defBLOB ... />
+        writer.emptyElement("defBLOB", "name" to name, "label" to label)
 
-        writer.endTag(null, "defBLOBVector", null)
+        writer.endElement("defBLOBVector")
     }
 
-    override fun writeSetXml(writer: XmlWriter) {
+    override fun writeSetXml(writer: IndiXmlWriter) {
         // No-op: BLOBs are streamed directly to TCP, not via SharedFlow.
         // The setBLOBVector XML is constructed and written inline during
         // image capture to avoid buffering large image data.

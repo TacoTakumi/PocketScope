@@ -6,13 +6,13 @@ import android.util.Base64
 import android.util.Base64OutputStream
 import android.util.Log
 import com.pocketscope.indi.device.IndiDevice
+import com.pocketscope.indi.properties.IndiXmlWriter
 import com.pocketscope.indi.protocol.IndiProtocolParser
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
-import nl.adaptivity.xmlutil.XmlStreaming
 import java.io.InputStream
 import java.io.OutputStream
 import java.io.OutputStreamWriter
@@ -69,10 +69,9 @@ class ClientSession(
         val broadcastJob: Job = launch(Dispatchers.IO) {
             updateFlows.merge().collect { property ->
                 synchronized(writer) {
-                    val xmlWriter = XmlStreaming.newWriter(writer)
+                    val xmlWriter = IndiXmlWriter(writer)
                     property.writeSetXml(xmlWriter)
                     xmlWriter.flush()
-                    writer.flush()
                 }
             }
         }
@@ -116,14 +115,13 @@ class ClientSession(
      * Must be called within synchronized(writer) from the caller.
      */
     private fun sendPropertyDefinitions() {
+        val xmlWriter = IndiXmlWriter(writer)
         for (device in devices) {
             for (property in device.properties) {
-                val xmlWriter = XmlStreaming.newWriter(writer)
                 property.writeXml(xmlWriter)
-                xmlWriter.flush()
             }
         }
-        writer.flush()
+        xmlWriter.flush()
     }
 
     /**

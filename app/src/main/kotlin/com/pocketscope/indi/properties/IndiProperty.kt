@@ -3,7 +3,6 @@ package com.pocketscope.indi.properties
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.asSharedFlow
-import nl.adaptivity.xmlutil.XmlWriter
 
 /**
  * Normalizes INDI number format strings to valid Java format strings.
@@ -28,7 +27,7 @@ enum class PropertyState {
  * the network layer to broadcast changes to all connected INDI clients.
  *
  * Each property can serialize itself to valid INDI XML via [writeXml],
- * using the xmlutil XmlWriter for correct escaping and formatting.
+ * using [IndiXmlWriter] for namespace-free output that INDI clients expect.
  */
 sealed class IndiProperty(
     val device: String,
@@ -54,24 +53,24 @@ sealed class IndiProperty(
      * Serializes this property to INDI XML using the given writer.
      * Each subclass produces the appropriate defXxxVector / defXxx elements.
      */
-    abstract fun writeXml(writer: XmlWriter)
+    abstract fun writeXml(writer: IndiXmlWriter)
 
     /**
      * Serializes this property as a setXxxVector update message.
      * Used to broadcast property changes to connected INDI clients.
      * Each subclass produces the appropriate setXxxVector / oneXxx elements.
      */
-    abstract fun writeSetXml(writer: XmlWriter)
+    abstract fun writeSetXml(writer: IndiXmlWriter)
 
     /**
      * Writes the common vector-level attributes: device, name, label, group, state.
      */
-    protected fun writeCommonAttributes(writer: XmlWriter) {
-        writer.attribute(null, "device", null, device)
-        writer.attribute(null, "name", null, name)
-        writer.attribute(null, "label", null, label)
-        writer.attribute(null, "group", null, group)
-        writer.attribute(null, "state", null, state.name)
+    protected fun writeCommonAttributes(writer: IndiXmlWriter) {
+        writer.attribute("device", device)
+        writer.attribute("name", name)
+        writer.attribute("label", label)
+        writer.attribute("group", group)
+        writer.attribute("state", state.name)
     }
 }
 
@@ -100,31 +99,35 @@ class TextProperty(
             emitUpdate()
         }
 
-    override fun writeXml(writer: XmlWriter) {
-        writer.startTag(null, "defTextVector", null)
+    override fun writeXml(writer: IndiXmlWriter) {
+        writer.startElement("defTextVector")
         writeCommonAttributes(writer)
+        writer.closeStartTag()
 
-        writer.startTag(null, "defText", null)
-        writer.attribute(null, "name", null, name)
-        writer.attribute(null, "label", null, label)
+        writer.startElement("defText")
+        writer.attribute("name", name)
+        writer.attribute("label", label)
+        writer.closeStartTag()
         writer.text(value)
-        writer.endTag(null, "defText", null)
+        writer.endElement("defText")
 
-        writer.endTag(null, "defTextVector", null)
+        writer.endElement("defTextVector")
     }
 
-    override fun writeSetXml(writer: XmlWriter) {
-        writer.startTag(null, "setTextVector", null)
-        writer.attribute(null, "device", null, device)
-        writer.attribute(null, "name", null, name)
-        writer.attribute(null, "state", null, state.name)
+    override fun writeSetXml(writer: IndiXmlWriter) {
+        writer.startElement("setTextVector")
+        writer.attribute("device", device)
+        writer.attribute("name", name)
+        writer.attribute("state", state.name)
+        writer.closeStartTag()
 
-        writer.startTag(null, "oneText", null)
-        writer.attribute(null, "name", null, name)
+        writer.startElement("oneText")
+        writer.attribute("name", name)
+        writer.closeStartTag()
         writer.text(value)
-        writer.endTag(null, "oneText", null)
+        writer.endElement("oneText")
 
-        writer.endTag(null, "setTextVector", null)
+        writer.endElement("setTextVector")
     }
 }
 
@@ -167,36 +170,40 @@ class NumberProperty(
      */
     fun formatValue(v: Double): String = String.format(normalizeIndiFormat(format), v)
 
-    override fun writeXml(writer: XmlWriter) {
-        writer.startTag(null, "defNumberVector", null)
+    override fun writeXml(writer: IndiXmlWriter) {
+        writer.startElement("defNumberVector")
         writeCommonAttributes(writer)
-        writer.attribute(null, "perm", null, perm)
+        writer.attribute("perm", perm)
+        writer.closeStartTag()
 
-        writer.startTag(null, "defNumber", null)
-        writer.attribute(null, "name", null, name)
-        writer.attribute(null, "label", null, label)
-        writer.attribute(null, "format", null, format)
-        writer.attribute(null, "min", null, formatValue(min))
-        writer.attribute(null, "max", null, formatValue(max))
-        writer.attribute(null, "step", null, formatValue(step))
+        writer.startElement("defNumber")
+        writer.attribute("name", name)
+        writer.attribute("label", label)
+        writer.attribute("format", format)
+        writer.attribute("min", formatValue(min))
+        writer.attribute("max", formatValue(max))
+        writer.attribute("step", formatValue(step))
+        writer.closeStartTag()
         writer.text(formatValue(value))
-        writer.endTag(null, "defNumber", null)
+        writer.endElement("defNumber")
 
-        writer.endTag(null, "defNumberVector", null)
+        writer.endElement("defNumberVector")
     }
 
-    override fun writeSetXml(writer: XmlWriter) {
-        writer.startTag(null, "setNumberVector", null)
-        writer.attribute(null, "device", null, device)
-        writer.attribute(null, "name", null, name)
-        writer.attribute(null, "state", null, state.name)
+    override fun writeSetXml(writer: IndiXmlWriter) {
+        writer.startElement("setNumberVector")
+        writer.attribute("device", device)
+        writer.attribute("name", name)
+        writer.attribute("state", state.name)
+        writer.closeStartTag()
 
-        writer.startTag(null, "oneNumber", null)
-        writer.attribute(null, "name", null, name)
+        writer.startElement("oneNumber")
+        writer.attribute("name", name)
+        writer.closeStartTag()
         writer.text(formatValue(value))
-        writer.endTag(null, "oneNumber", null)
+        writer.endElement("oneNumber")
 
-        writer.endTag(null, "setNumberVector", null)
+        writer.endElement("setNumberVector")
     }
 }
 
@@ -224,37 +231,41 @@ class SwitchProperty(
     val perm: String = "rw"
 ) : IndiProperty(device, name, label, group, initialState) {
 
-    override fun writeXml(writer: XmlWriter) {
-        writer.startTag(null, "defSwitchVector", null)
+    override fun writeXml(writer: IndiXmlWriter) {
+        writer.startElement("defSwitchVector")
         writeCommonAttributes(writer)
-        writer.attribute(null, "perm", null, perm)
-        writer.attribute(null, "rule", null, rule)
+        writer.attribute("perm", perm)
+        writer.attribute("rule", rule)
+        writer.closeStartTag()
 
         for ((optName, isOn) in options) {
-            writer.startTag(null, "defSwitch", null)
-            writer.attribute(null, "name", null, optName)
-            writer.attribute(null, "label", null, optName)
+            writer.startElement("defSwitch")
+            writer.attribute("name", optName)
+            writer.attribute("label", optName)
+            writer.closeStartTag()
             writer.text(if (isOn) "On" else "Off")
-            writer.endTag(null, "defSwitch", null)
+            writer.endElement("defSwitch")
         }
 
-        writer.endTag(null, "defSwitchVector", null)
+        writer.endElement("defSwitchVector")
     }
 
-    override fun writeSetXml(writer: XmlWriter) {
-        writer.startTag(null, "setSwitchVector", null)
-        writer.attribute(null, "device", null, device)
-        writer.attribute(null, "name", null, name)
-        writer.attribute(null, "state", null, state.name)
+    override fun writeSetXml(writer: IndiXmlWriter) {
+        writer.startElement("setSwitchVector")
+        writer.attribute("device", device)
+        writer.attribute("name", name)
+        writer.attribute("state", state.name)
+        writer.closeStartTag()
 
         for ((optName, isOn) in options) {
-            writer.startTag(null, "oneSwitch", null)
-            writer.attribute(null, "name", null, optName)
+            writer.startElement("oneSwitch")
+            writer.attribute("name", optName)
+            writer.closeStartTag()
             writer.text(if (isOn) "On" else "Off")
-            writer.endTag(null, "oneSwitch", null)
+            writer.endElement("oneSwitch")
         }
 
-        writer.endTag(null, "setSwitchVector", null)
+        writer.endElement("setSwitchVector")
     }
 }
 
@@ -317,40 +328,44 @@ class NumberVectorProperty(
         emitUpdate()
     }
 
-    override fun writeXml(writer: XmlWriter) {
-        writer.startTag(null, "defNumberVector", null)
+    override fun writeXml(writer: IndiXmlWriter) {
+        writer.startElement("defNumberVector")
         writeCommonAttributes(writer)
-        writer.attribute(null, "perm", null, perm)
+        writer.attribute("perm", perm)
+        writer.closeStartTag()
 
         for (elem in elements) {
             val fmt = normalizeIndiFormat(elem.format)
-            writer.startTag(null, "defNumber", null)
-            writer.attribute(null, "name", null, elem.name)
-            writer.attribute(null, "label", null, elem.label)
-            writer.attribute(null, "format", null, elem.format)
-            writer.attribute(null, "min", null, String.format(fmt, elem.min))
-            writer.attribute(null, "max", null, String.format(fmt, elem.max))
-            writer.attribute(null, "step", null, String.format(fmt, elem.step))
+            writer.startElement("defNumber")
+            writer.attribute("name", elem.name)
+            writer.attribute("label", elem.label)
+            writer.attribute("format", elem.format)
+            writer.attribute("min", String.format(fmt, elem.min))
+            writer.attribute("max", String.format(fmt, elem.max))
+            writer.attribute("step", String.format(fmt, elem.step))
+            writer.closeStartTag()
             writer.text(String.format(fmt, elem.value))
-            writer.endTag(null, "defNumber", null)
+            writer.endElement("defNumber")
         }
 
-        writer.endTag(null, "defNumberVector", null)
+        writer.endElement("defNumberVector")
     }
 
-    override fun writeSetXml(writer: XmlWriter) {
-        writer.startTag(null, "setNumberVector", null)
-        writer.attribute(null, "device", null, device)
-        writer.attribute(null, "name", null, name)
-        writer.attribute(null, "state", null, state.name)
+    override fun writeSetXml(writer: IndiXmlWriter) {
+        writer.startElement("setNumberVector")
+        writer.attribute("device", device)
+        writer.attribute("name", name)
+        writer.attribute("state", state.name)
+        writer.closeStartTag()
 
         for (elem in elements) {
-            writer.startTag(null, "oneNumber", null)
-            writer.attribute(null, "name", null, elem.name)
+            writer.startElement("oneNumber")
+            writer.attribute("name", elem.name)
+            writer.closeStartTag()
             writer.text(String.format(normalizeIndiFormat(elem.format), elem.value))
-            writer.endTag(null, "oneNumber", null)
+            writer.endElement("oneNumber")
         }
 
-        writer.endTag(null, "setNumberVector", null)
+        writer.endElement("setNumberVector")
     }
 }

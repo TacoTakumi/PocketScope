@@ -3,7 +3,6 @@ package com.pocketscope.indi.properties
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.test.runTest
-import nl.adaptivity.xmlutil.core.KtXmlWriter
 import org.junit.Assert.*
 import org.junit.Test
 import java.io.StringWriter
@@ -152,10 +151,10 @@ class IndiPropertyTest {
 
     private fun writePropertyToXml(property: IndiProperty): String {
         val sw = StringWriter()
-        val writer = KtXmlWriter(sw)
+        val writer = IndiXmlWriter(sw)
         property.writeXml(writer)
         writer.flush()
-        writer.close()
+        writer.flush()
         return sw.toString()
     }
 
@@ -309,10 +308,10 @@ class IndiPropertyTest {
 
     private fun writeSetPropertyToXml(property: IndiProperty): String {
         val sw = StringWriter()
-        val writer = KtXmlWriter(sw)
+        val writer = IndiXmlWriter(sw)
         property.writeSetXml(writer)
         writer.flush()
-        writer.close()
+        writer.flush()
         return sw.toString()
     }
 
@@ -443,10 +442,10 @@ class IndiPropertyTest {
         )
 
         val sw = StringWriter()
-        val writer = KtXmlWriter(sw)
+        val writer = IndiXmlWriter(sw)
         prop.writeSetXml(writer)
         writer.flush()
-        writer.close()
+        writer.flush()
         val xml = sw.toString()
 
         assertTrue("Should contain setNumberVector", xml.contains("setNumberVector"))
