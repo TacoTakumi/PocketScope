@@ -8,15 +8,20 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.pocketscope.service.ServerState
 
@@ -87,11 +92,83 @@ fun ServerStatusScreen(
 
                 Spacer(modifier = Modifier.height(16.dp))
 
+                // Client count or "Waiting for clients..." (D-07)
                 Text(
-                    text = "${state.connectedClients} client(s) connected",
+                    text = if (state.connectedClients == 0) "Waiting for clients..."
+                           else "${state.connectedClients} client(s) connected",
                     style = MaterialTheme.typography.bodyLarge,
                     color = MaterialTheme.colorScheme.onSurface
                 )
+
+                // LOW BATTERY warning (D-04)
+                if (state.lowBattery) {
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "LOW BATTERY: ${state.batteryPercent}%",
+                        style = MaterialTheme.typography.bodyLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.primary,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+
+                // Session Metrics (D-10, D-12)
+                Spacer(modifier = Modifier.height(16.dp))
+                HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                Spacer(modifier = Modifier.height(12.dp))
+
+                // Uptime
+                Text(
+                    text = "Uptime: ${formatUptime(state.uptimeSeconds)}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontFamily = FontFamily.Monospace
+                )
+                Spacer(modifier = Modifier.height(4.dp))
+                // Captures and Errors on one line
+                Text(
+                    text = "Captures: ${state.captureCount}  Errors: ${state.errorCount}",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontFamily = FontFamily.Monospace
+                )
+
+                // Event Log (D-06)
+                if (state.eventLog.isNotEmpty()) {
+                    Spacer(modifier = Modifier.height(12.dp))
+                    HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Text(
+                        text = "Events",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    val listState = rememberLazyListState()
+                    LaunchedEffect(state.eventLog.size) {
+                        if (state.eventLog.isNotEmpty()) {
+                            listState.animateScrollToItem(state.eventLog.size - 1)
+                        }
+                    }
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(160.dp)
+                    ) {
+                        items(state.eventLog) { event ->
+                            Text(
+                                text = event,
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurface,
+                                fontFamily = FontFamily.Monospace,
+                                modifier = Modifier.padding(vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
             }
 
             Spacer(modifier = Modifier.weight(1f))
@@ -130,4 +207,10 @@ fun ServerStatusScreen(
             Spacer(modifier = Modifier.height(16.dp))
         }
     }
+}
+
+private fun formatUptime(seconds: Long): String {
+    val hours = seconds / 3600
+    val minutes = (seconds % 3600) / 60
+    return if (hours > 0) "${hours}h ${minutes}m" else "${minutes}m"
 }
