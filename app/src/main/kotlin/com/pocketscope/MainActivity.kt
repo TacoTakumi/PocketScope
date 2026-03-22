@@ -4,11 +4,14 @@ import android.Manifest
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Bundle
+import android.view.Window
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -30,6 +33,9 @@ class MainActivity : ComponentActivity() {
             PocketScopeTheme {
                 val serverState by IndiServerService.state
                     .collectAsStateWithLifecycle()
+
+                // Force minimum brightness when server is active (D-13)
+                BrightnessEffect(window = window, isServerRunning = serverState.isRunning)
 
                 var cameraPermissionGranted by remember {
                     mutableStateOf(
@@ -67,5 +73,16 @@ class MainActivity : ComponentActivity() {
     private fun stopIndiService() {
         val intent = Intent(this, IndiServerService::class.java)
         stopService(intent)
+    }
+}
+
+@Composable
+private fun BrightnessEffect(window: Window, isServerRunning: Boolean) {
+    LaunchedEffect(isServerRunning) {
+        val lp = window.attributes
+        // 0.01f = minimum brightness. NOT 0.0f which some devices treat as "use system default"
+        // -1f = restore system default brightness
+        lp.screenBrightness = if (isServerRunning) 0.01f else -1f
+        window.attributes = lp
     }
 }
