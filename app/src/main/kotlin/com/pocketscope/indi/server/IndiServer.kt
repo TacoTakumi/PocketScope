@@ -65,6 +65,10 @@ class IndiServer(
     /** Active client sessions for BLOB broadcasting. Thread-safe for concurrent iteration. */
     private val activeSessions = CopyOnWriteArrayList<ClientSession>()
 
+    /** Number of currently connected INDI clients. */
+    val connectedClientCount: Int
+        get() = activeSessions.size
+
     /** Broadcasts FITS data to all active sessions that have enabled BLOBs. */
     private val blobCallback: suspend (String, ByteArray) -> Unit = { deviceName, fitsBytes ->
         for (session in activeSessions) {
