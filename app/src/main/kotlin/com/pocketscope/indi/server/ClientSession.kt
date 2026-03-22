@@ -13,6 +13,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.merge
 import kotlinx.coroutines.launch
+import java.io.FilterOutputStream
 import java.io.InputStream
 import java.io.OutputStream
 import java.io.OutputStreamWriter
@@ -65,13 +66,23 @@ class ClientSession(
             device.properties.map { it.updates }
         }
 
+        // Track whether property definitions have been sent.
+        // The broadcast collector must not emit updates until after defs are sent,
+        // otherwise clients receive setSwitchVector before defSwitchVector.
+        var definitionsSent = false
+
         // Launch broadcast collector for property updates
         val broadcastJob: Job = launch(Dispatchers.IO) {
             updateFlows.merge().collect { property ->
-                synchronized(writer) {
-                    val xmlWriter = IndiXmlWriter(writer)
-                    property.writeSetXml(xmlWriter)
-                    xmlWriter.flush()
+                if (!definitionsSent) return@collect  // Skip stale replay emissions
+                try {
+                    synchronized(writer) {
+                        val xmlWriter = IndiXmlWriter(writer)
+                        property.writeSetXml(xmlWriter)
+                        xmlWriter.flush()
+                    }
+                } catch (e: Exception) {
+                    Log.w(TAG, "Broadcast write failed (client disconnected?): ${e.message}")
                 }
             }
         }
@@ -86,6 +97,7 @@ class ClientSession(
                         synchronized(writer) {
                             Log.d(TAG, "Sending property definitions for ${devices.size} devices")
                             sendPropertyDefinitions()
+                            definitionsSent = true
                             Log.d(TAG, "Property definitions sent")
                         }
                     }
@@ -148,13 +160,26 @@ class ClientSession(
             writer.write("""<oneBLOB name="CCD1" size="${fitsBytes.size}" format=".fits">""")
             writer.flush()
 
-            // Stream Base64 directly to TCP -- never hold full encoded string (IMG-05)
-            val base64Stream = Base64OutputStream(outputStream, Base64.NO_WRAP)
-            fitsBytes.inputStream().copyTo(base64Stream, bufferSize = 4096)
-            base64Stream.close()  // Flushes final padding bytes
+            // Encode to Base64 in memory then write in one shot.
+            // Ktor's OutputStream adapter is slow for many small writes,
+            // so bulk encoding (~33MB for a 25MB FITS) is faster than streaming.
+            val base64Bytes = Base64.encode(fitsBytes, Base64.NO_WRAP)
+            outputStream.write(base64Bytes)
+            outputStream.flush()
 
             writer.write("</oneBLOB></setBLOBVector>")
             writer.flush()
         }
+    }
+}
+
+/**
+ * OutputStream wrapper that delegates all operations except [close] to the
+ * underlying stream. Used to let [Base64OutputStream.close] flush its final
+ * padding bytes without closing the TCP socket.
+ */
+private class NonClosingOutputStream(out: OutputStream) : FilterOutputStream(out) {
+    override fun close() {
+        flush()  // Flush but do NOT close the underlying stream
     }
 }
