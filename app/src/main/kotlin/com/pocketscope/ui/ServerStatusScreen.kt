@@ -12,6 +12,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
@@ -31,7 +32,9 @@ fun ServerStatusScreen(
     onStartServer: () -> Unit,
     onStopServer: () -> Unit,
     cameraPermissionGranted: Boolean,
-    onRequestCameraPermission: () -> Unit
+    onRequestCameraPermission: () -> Unit,
+    isDimmed: Boolean = false,
+    onToggleBrightness: () -> Unit = {}
 ) {
     Scaffold { innerPadding ->
         Column(
@@ -108,6 +111,21 @@ fun ServerStatusScreen(
                         style = MaterialTheme.typography.bodyLarge,
                         fontWeight = FontWeight.Bold,
                         color = MaterialTheme.colorScheme.primary,
+                        fontFamily = FontFamily.Monospace
+                    )
+                }
+
+                // Night-vision brightness toggle
+                Spacer(modifier = Modifier.height(12.dp))
+                Button(
+                    onClick = onToggleBrightness,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.surface,
+                        contentColor = MaterialTheme.colorScheme.primary
+                    )
+                ) {
+                    Text(
+                        text = if (isDimmed) "Restore Brightness" else "Dim for Night Vision",
                         fontFamily = FontFamily.Monospace
                     )
                 }

@@ -34,8 +34,13 @@ class MainActivity : ComponentActivity() {
                 val serverState by IndiServerService.state
                     .collectAsStateWithLifecycle()
 
-                // Force minimum brightness when server is active (D-13)
-                BrightnessEffect(window = window, isServerRunning = serverState.isRunning)
+                // Night-vision brightness toggle (D-13)
+                var isDimmed by remember { mutableStateOf(false) }
+                // Reset dim state when server stops
+                LaunchedEffect(serverState.isRunning) {
+                    if (!serverState.isRunning) isDimmed = false
+                }
+                BrightnessEffect(window = window, dimmed = isDimmed)
 
                 var cameraPermissionGranted by remember {
                     mutableStateOf(
@@ -59,7 +64,9 @@ class MainActivity : ComponentActivity() {
                     cameraPermissionGranted = cameraPermissionGranted,
                     onRequestCameraPermission = {
                         permissionLauncher.launch(Manifest.permission.CAMERA)
-                    }
+                    },
+                    isDimmed = isDimmed,
+                    onToggleBrightness = { isDimmed = !isDimmed }
                 )
             }
         }
@@ -77,12 +84,20 @@ class MainActivity : ComponentActivity() {
 }
 
 @Composable
-private fun BrightnessEffect(window: Window, isServerRunning: Boolean) {
-    LaunchedEffect(isServerRunning) {
+private fun BrightnessEffect(window: Window, dimmed: Boolean) {
+    // Remember the brightness before we override it, so we can restore it
+    val originalBrightness = remember {
+        mutableStateOf(window.attributes.screenBrightness)
+    }
+    LaunchedEffect(dimmed) {
         val lp = window.attributes
-        // 0.01f = minimum brightness. NOT 0.0f which some devices treat as "use system default"
-        // -1f = restore system default brightness
-        lp.screenBrightness = if (isServerRunning) 0.01f else -1f
+        if (dimmed) {
+            originalBrightness.value = lp.screenBrightness
+            // 0.01f = minimum brightness. NOT 0.0f which some devices treat as "use system default"
+            lp.screenBrightness = 0.01f
+        } else {
+            lp.screenBrightness = originalBrightness.value
+        }
         window.attributes = lp
     }
 }
