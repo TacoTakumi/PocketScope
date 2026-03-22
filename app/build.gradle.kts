@@ -6,12 +6,12 @@ plugins {
 
 android {
     namespace = "com.pocketscope"
-    compileSdk = 35
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.pocketscope"
         minSdk = 29
-        targetSdk = 35
+        targetSdk = 36
         versionCode = 1
         versionName = "1.0"
 
@@ -63,7 +63,7 @@ dependencies {
     testImplementation("net.sf.kxml:kxml2:2.3.0")
 
     // Compose BOM
-    val composeBom = platform("androidx.compose:compose-bom:2025.01.01")
+    val composeBom = platform("androidx.compose:compose-bom:2026.03.00")
     implementation(composeBom)
 
     // Compose UI
@@ -73,8 +73,8 @@ dependencies {
     debugImplementation("androidx.compose.ui:ui-tooling")
 
     // Activity + Lifecycle for Compose
-    implementation("androidx.activity:activity-compose:1.9.3")
-    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.8.7")
+    implementation("androidx.activity:activity-compose:1.13.0")
+    implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.0")
 
     // Testing
     testImplementation("junit:junit:4.13.2")
