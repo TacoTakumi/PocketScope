@@ -19,6 +19,12 @@ Thumbs.db
 META-INF/
 io/
 
+# Python virtual environment
+venv/
+
+# Third-party reference repos
+3rdParty/
+
 # GSD crash/state logs
 gsd-crash
 gsd-state
