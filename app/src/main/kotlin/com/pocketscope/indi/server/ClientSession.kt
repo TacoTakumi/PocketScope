@@ -71,19 +71,22 @@ class ClientSession(
         // otherwise clients receive setSwitchVector before defSwitchVector.
         var definitionsSent = false
 
-        // Launch broadcast collector for property updates
+        // Launch broadcast collector for property updates.
+        // On write failure (broken pipe from client disconnect), close the
+        // input stream to unblock the parser's read() and trigger session cleanup.
         val broadcastJob: Job = launch(Dispatchers.IO) {
-            updateFlows.merge().collect { property ->
-                if (!definitionsSent) return@collect  // Skip stale replay emissions
-                try {
+            try {
+                updateFlows.merge().collect { property ->
+                    if (!definitionsSent) return@collect  // Skip stale replay emissions
                     synchronized(writer) {
                         val xmlWriter = IndiXmlWriter(writer)
                         property.writeSetXml(xmlWriter)
                         xmlWriter.flush()
                     }
-                } catch (e: Exception) {
-                    Log.w(TAG, "Broadcast write failed (client disconnected?): ${e.message}")
                 }
+            } catch (e: Exception) {
+                Log.w(TAG, "Broadcast write failed (client disconnected): ${e.message}")
+                try { inputStream.close() } catch (_: Exception) {}
             }
         }
 

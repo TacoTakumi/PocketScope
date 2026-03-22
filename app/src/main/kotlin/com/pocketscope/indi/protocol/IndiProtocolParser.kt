@@ -43,52 +43,57 @@ class IndiProtocolParser(inputStream: InputStream) {
      * @param onElement callback with tag name, attributes map, and child elements map
      */
     fun parseStream(onElement: (name: String, attributes: Map<String, String>, elements: Map<String, String>) -> Unit) {
-        var eventType = parser.eventType
-        while (eventType != XmlPullParser.END_DOCUMENT) {
-            if (eventType == XmlPullParser.START_TAG && parser.name != "indi") {
-                val tagName = parser.name
-                val attributes = buildMap {
-                    for (i in 0 until parser.attributeCount) {
-                        put(parser.getAttributeName(i), parser.getAttributeValue(i))
-                    }
-                }
-
-                if (tagName.startsWith("new")) {
-                    // Command vector: collect child elements (oneNumber, oneSwitch, oneText, etc.)
-                    val childElements = mutableMapOf<String, String>()
-                    eventType = parser.next()
-                    while (!(eventType == XmlPullParser.END_TAG && parser.name == tagName)) {
-                        if (eventType == XmlPullParser.START_TAG) {
-                            // Read child element name attribute
-                            val childName = parser.getAttributeValue(null, "name") ?: ""
-                            // Advance to TEXT content
-                            eventType = parser.next()
-                            val textContent = if (eventType == XmlPullParser.TEXT) {
-                                val text = parser.text.trim()
-                                eventType = parser.next() // skip to END_TAG of child
-                                text
-                            } else {
-                                ""
-                            }
-                            childElements[childName] = textContent
+        try {
+            var eventType = parser.eventType
+            while (eventType != XmlPullParser.END_DOCUMENT) {
+                if (eventType == XmlPullParser.START_TAG && parser.name != "indi") {
+                    val tagName = parser.name
+                    val attributes = buildMap {
+                        for (i in 0 until parser.attributeCount) {
+                            put(parser.getAttributeName(i), parser.getAttributeValue(i))
                         }
+                    }
+
+                    if (tagName.startsWith("new")) {
+                        // Command vector: collect child elements (oneNumber, oneSwitch, oneText, etc.)
+                        val childElements = mutableMapOf<String, String>()
                         eventType = parser.next()
-                    }
-                    onElement(tagName, attributes, childElements)
-                } else {
-                    // Non-command tag (e.g., getProperties, enableBLOB)
-                    // For tags with text content (like enableBLOB), capture it
-                    eventType = parser.next()
-                    val textElements = if (eventType == XmlPullParser.TEXT) {
-                        val text = parser.text.trim()
-                        if (text.isNotEmpty()) mapOf("__text__" to text) else emptyMap()
+                        while (!(eventType == XmlPullParser.END_TAG && parser.name == tagName)) {
+                            if (eventType == XmlPullParser.START_TAG) {
+                                // Read child element name attribute
+                                val childName = parser.getAttributeValue(null, "name") ?: ""
+                                // Advance to TEXT content
+                                eventType = parser.next()
+                                val textContent = if (eventType == XmlPullParser.TEXT) {
+                                    val text = parser.text.trim()
+                                    eventType = parser.next() // skip to END_TAG of child
+                                    text
+                                } else {
+                                    ""
+                                }
+                                childElements[childName] = textContent
+                            }
+                            eventType = parser.next()
+                        }
+                        onElement(tagName, attributes, childElements)
                     } else {
-                        emptyMap()
+                        // Non-command tag (e.g., getProperties, enableBLOB)
+                        // For tags with text content (like enableBLOB), capture it
+                        eventType = parser.next()
+                        val textElements = if (eventType == XmlPullParser.TEXT) {
+                            val text = parser.text.trim()
+                            if (text.isNotEmpty()) mapOf("__text__" to text) else emptyMap()
+                        } else {
+                            emptyMap()
+                        }
+                        onElement(tagName, attributes, textElements)
                     }
-                    onElement(tagName, attributes, textElements)
                 }
+                eventType = parser.next()
             }
-            eventType = parser.next()
+        } catch (_: Exception) {
+            // Stream closed or malformed XML on disconnect — normal exit path.
+            // The synthetic <indi> root is never closed, so EOF always throws.
         }
     }
 }
