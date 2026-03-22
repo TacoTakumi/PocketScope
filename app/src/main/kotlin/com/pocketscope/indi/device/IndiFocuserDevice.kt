@@ -58,7 +58,8 @@ class IndiFocuserDevice : IndiDevice {
         min = 0.0,
         max = FOCUS_MAX_STEPS.toDouble(),
         step = 1.0,
-        perm = "rw"
+        perm = "rw",
+        elementName = "FOCUS_ABSOLUTE_POSITION"
     )
 
     private val relFocusPosition = NumberProperty(
@@ -72,7 +73,8 @@ class IndiFocuserDevice : IndiDevice {
         min = 0.0,
         max = FOCUS_MAX_STEPS.toDouble(),
         step = 1.0,
-        perm = "rw"
+        perm = "rw",
+        elementName = "FOCUS_RELATIVE_POSITION"
     )
 
     private val focusMax = NumberProperty(
@@ -86,7 +88,8 @@ class IndiFocuserDevice : IndiDevice {
         min = 1000.0,
         max = 1000000.0,
         step = 10000.0,
-        perm = "rw"
+        perm = "rw",
+        elementName = "FOCUS_MAX_VALUE"
     )
 
     private val focusMotion = SwitchProperty(
@@ -131,11 +134,24 @@ class IndiFocuserDevice : IndiDevice {
             return
         }
         when (propertyName) {
-            "CONNECTION" -> { /* focuser connects implicitly when a camera connects */ }
+            "CONNECTION" -> handleConnection(elements)
             "ABS_FOCUS_POSITION" -> handleAbsPosition(elements)
             "REL_FOCUS_POSITION" -> handleRelPosition(elements)
             "FOCUS_MOTION" -> handleMotionDirection(elements)
             "FOCUS_MAX" -> handleFocusMax(elements)
+        }
+    }
+
+    private fun handleConnection(elements: Map<String, String>) {
+        val connectOn = elements["CONNECT"]?.equals("On", ignoreCase = true) == true
+        if (connectOn) {
+            connectionSwitch.options["CONNECT"] = true
+            connectionSwitch.options["DISCONNECT"] = false
+            connectionSwitch.state = PropertyState.Ok
+        } else {
+            connectionSwitch.options["CONNECT"] = false
+            connectionSwitch.options["DISCONNECT"] = true
+            connectionSwitch.state = PropertyState.Idle
         }
     }
 

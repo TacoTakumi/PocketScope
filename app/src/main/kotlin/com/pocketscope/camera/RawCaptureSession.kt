@@ -7,11 +7,15 @@ import android.hardware.camera2.CameraMetadata
 import android.hardware.camera2.CaptureFailure
 import android.hardware.camera2.CaptureRequest
 import android.hardware.camera2.TotalCaptureResult
+import android.hardware.camera2.params.OutputConfiguration
+import android.hardware.camera2.params.SessionConfiguration
 import android.media.Image
 import android.media.ImageReader
 import android.os.Handler
+import android.util.Log
 import kotlinx.coroutines.suspendCancellableCoroutine
 import java.nio.ByteBuffer
+import java.util.concurrent.Executor
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 
@@ -25,9 +29,53 @@ import kotlin.coroutines.resumeWithException
  * triggers a single still capture, extracts raw bytes handling row stride padding,
  * and cleans up all resources.
  *
+ * For multi-camera devices, uses [OutputConfiguration.setPhysicalCameraId] to
+ * route the capture to the correct physical sensor when the device was opened
+ * through a logical camera.
+ *
  * @param handler Camera2 callback handler (must be on a background thread)
  */
 class RawCaptureSession(private val handler: Handler) {
+
+    companion object {
+        private const val TAG = "RawCaptureSession"
+
+        /**
+         * Extracts raw pixel bytes from a ByteBuffer, handling row stride padding.
+         *
+         * Exposed as internal for unit testing the extraction logic independently
+         * of Camera2 hardware APIs.
+         *
+         * @param buffer source buffer containing pixel data (possibly with row padding)
+         * @param rowStride bytes per row in the buffer (may be > width * pixelStride due to padding)
+         * @param pixelStride bytes per pixel (typically 2 for 16-bit RAW)
+         * @param width image width in pixels
+         * @param height image height in pixels
+         * @return raw pixel bytes with padding stripped
+         */
+        internal fun extractRawPixels(
+            buffer: ByteBuffer,
+            rowStride: Int,
+            pixelStride: Int,
+            width: Int,
+            height: Int
+        ): ByteArray {
+            val rowBytes = width * pixelStride
+
+            return if (rowStride == rowBytes) {
+                // Contiguous: no padding, read all at once
+                ByteArray(buffer.remaining()).also { buffer.get(it) }
+            } else {
+                // Padded: read row by row, skipping padding bytes
+                val output = ByteArray(rowBytes * height)
+                for (row in 0 until height) {
+                    buffer.position(row * rowStride)
+                    buffer.get(output, row * rowBytes, rowBytes)
+                }
+                output
+            }
+        }
+    }
 
     /**
      * Captures a single RAW_SENSOR frame with manual exposure and ISO.
@@ -51,13 +99,21 @@ class RawCaptureSession(private val handler: Handler) {
             ImageFormat.RAW_SENSOR,
             2  // maxImages: prevents OOM per IMG-05
         )
+        Log.d(TAG, "ImageReader: ${lensInfo.pixelArraySize.width}x${lensInfo.pixelArraySize.height} RAW_SENSOR, physical=${lensInfo.physicalCameraId} logical=${lensInfo.logicalCameraId}")
 
         try {
-            // Create capture session
+            // Create capture session with physical camera routing for multi-camera
             val captureSession = suspendCancellableCoroutine<CameraCaptureSession> { cont ->
-                @Suppress("DEPRECATION")
-                cameraDevice.createCaptureSession(
-                    listOf(imageReader.surface),
+                val outputConfig = OutputConfiguration(imageReader.surface)
+                if (lensInfo.logicalCameraId != null) {
+                    outputConfig.setPhysicalCameraId(lensInfo.physicalCameraId)
+                    Log.d(TAG, "Routing output to physical camera ${lensInfo.physicalCameraId}")
+                }
+
+                val sessionConfig = SessionConfiguration(
+                    SessionConfiguration.SESSION_REGULAR,
+                    listOf(outputConfig),
+                    Executor { command -> handler.post(command) },
                     object : CameraCaptureSession.StateCallback() {
                         override fun onConfigured(session: CameraCaptureSession) {
                             if (cont.isActive) cont.resume(session)
@@ -68,9 +124,10 @@ class RawCaptureSession(private val handler: Handler) {
                                 RuntimeException("Capture session configuration failed")
                             )
                         }
-                    },
-                    handler
+                    }
                 )
+
+                cameraDevice.createCaptureSession(sessionConfig)
             }
 
             try {
@@ -145,43 +202,5 @@ class RawCaptureSession(private val handler: Handler) {
         val result = extractRawPixels(buffer, rowStride, pixelStride, width, height)
         image.close()  // CRITICAL: close immediately per IMG-05 / Pitfall 2
         return CaptureResult(result, width, height)
-    }
-
-    companion object {
-        /**
-         * Extracts raw pixel bytes from a ByteBuffer, handling row stride padding.
-         *
-         * Exposed as internal for unit testing the extraction logic independently
-         * of Camera2 hardware APIs.
-         *
-         * @param buffer source buffer containing pixel data (possibly with row padding)
-         * @param rowStride bytes per row in the buffer (may be > width * pixelStride due to padding)
-         * @param pixelStride bytes per pixel (typically 2 for 16-bit RAW)
-         * @param width image width in pixels
-         * @param height image height in pixels
-         * @return raw pixel bytes with padding stripped
-         */
-        internal fun extractRawPixels(
-            buffer: ByteBuffer,
-            rowStride: Int,
-            pixelStride: Int,
-            width: Int,
-            height: Int
-        ): ByteArray {
-            val rowBytes = width * pixelStride
-
-            return if (rowStride == rowBytes) {
-                // Contiguous: no padding, read all at once
-                ByteArray(buffer.remaining()).also { buffer.get(it) }
-            } else {
-                // Padded: read row by row, skipping padding bytes
-                val output = ByteArray(rowBytes * height)
-                for (row in 0 until height) {
-                    buffer.position(row * rowStride)
-                    buffer.get(output, row * rowBytes, rowBytes)
-                }
-                output
-            }
-        }
     }
 }

@@ -23,14 +23,22 @@ class IndiXmlWriter(private val writer: Writer) {
 
     fun closeStartTag() {
         writer.write(">")
+        depth++
     }
 
     fun text(content: String) {
         writer.write(escapeXml(content))
     }
 
+    private var depth = 0
+
     fun endElement(tag: String) {
         writer.write("</$tag>")
+        depth--
+        if (depth <= 0) {
+            writer.write("\n")  // Newline after top-level elements per INDI convention
+            depth = 0
+        }
     }
 
     /** Write an empty element: <tag attr="val"></tag> (no self-closing) */

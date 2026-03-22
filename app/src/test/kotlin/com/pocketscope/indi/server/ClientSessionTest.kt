@@ -125,6 +125,12 @@ class ClientSessionTest {
 
         delay(200)
 
+        // Send getProperties to enable property broadcasts (required before updates are forwarded)
+        clientInputWriter.write("<getProperties version=\"1.7\"/>".toByteArray())
+        clientInputWriter.flush()
+
+        delay(200)
+
         // Trigger a property update by changing state
         switchProp.state = PropertyState.Ok
 

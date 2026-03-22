@@ -155,7 +155,8 @@ class NumberProperty(
     val min: Double,
     val max: Double,
     val step: Double,
-    val perm: String = "rw"
+    val perm: String = "rw",
+    val elementName: String = name
 ) : IndiProperty(device, name, label, group, initialState) {
 
     var value: Double = value
@@ -177,7 +178,7 @@ class NumberProperty(
         writer.closeStartTag()
 
         writer.startElement("defNumber")
-        writer.attribute("name", name)
+        writer.attribute("name", elementName)
         writer.attribute("label", label)
         writer.attribute("format", format)
         writer.attribute("min", formatValue(min))
@@ -198,7 +199,7 @@ class NumberProperty(
         writer.closeStartTag()
 
         writer.startElement("oneNumber")
-        writer.attribute("name", name)
+        writer.attribute("name", elementName)
         writer.closeStartTag()
         writer.text(formatValue(value))
         writer.endElement("oneNumber")

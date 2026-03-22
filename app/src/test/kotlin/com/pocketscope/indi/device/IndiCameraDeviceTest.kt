@@ -45,7 +45,7 @@ class IndiCameraDeviceTest {
         testLensInfo = LensInfo(
             physicalCameraId = "2",
             logicalCameraId = "0",
-            focalLength = 6.81f,           // > 6.0 -> "Tele"
+            focalLength = 6.81f,           // 3.0..8.0 -> "Main"
             pixelArraySize = Size(4032, 3024),
             physicalSensorSize = SizeF(5.64f, 4.23f),
             pixelSizeX = 1.4f,
@@ -72,7 +72,7 @@ class IndiCameraDeviceTest {
     @Test
     fun `device name follows PocketScope lensType pattern`() = runTest {
         val device = createDevice(scope = this)
-        assertEquals("PocketScope Tele", device.deviceName)
+        assertEquals("PocketScope Main", device.deviceName)
     }
 
     @Test
@@ -293,8 +293,8 @@ class IndiCameraDeviceTest {
     fun `bayerPattern is computed from lensInfo cfaArrangement`() = runTest {
         // Default cfaArrangement is 0 (RGGB) in testLensInfo
         val device = createDevice(scope = this)
-        // 7 properties: CONNECTION, CCD_EXPOSURE, CCD_GAIN, CCD_INFO, CCD_FRAME, CCD_TEMPERATURE, CCD1
-        assertEquals(7, device.properties.size)
+        // 8 properties: CONNECTION, DRIVER_INFO, CCD_EXPOSURE, CCD_GAIN, CCD_INFO, CCD_FRAME, CCD_TEMPERATURE, CCD1
+        assertEquals(8, device.properties.size)
     }
 
     @Test

@@ -43,7 +43,7 @@ data class LensInfo(
     /** Human-readable lens type based on focal length relative to a reference set. */
     val lensType: String get() = when {
         focalLength < 3.0f -> "Ultrawide"
-        focalLength < 6.0f -> "Main"
+        focalLength < 8.0f -> "Main"
         else -> "Tele"
     }
 }
