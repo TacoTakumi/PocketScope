@@ -1,5 +1,6 @@
 package com.pocketscope.indi.device
 
+import android.util.Log
 import com.pocketscope.camera.CameraSessionContract
 import com.pocketscope.camera.LensInfo
 import com.pocketscope.camera.RawCaptureSession
@@ -16,6 +17,7 @@ import com.pocketscope.indi.properties.TextElement
 import com.pocketscope.indi.properties.TextVectorProperty
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
@@ -42,7 +44,8 @@ class IndiCameraDevice(
     private val scope: CoroutineScope,
     private val onLensSwitch: ((LensInfo) -> Unit)? = null,
     private val rawCaptureSession: RawCaptureSession? = null,
-    private val blobCallback: (suspend (deviceName: String, fitsBytes: ByteArray) -> Unit)? = null
+    private val blobCallback: (suspend (deviceName: String, fitsBytes: ByteArray) -> Unit)? = null,
+    private val onCaptureComplete: ((success: Boolean) -> Unit)? = null
 ) : IndiDevice {
 
     override val deviceName: String = "PocketScope ${lensInfo.lensType}"
@@ -117,7 +120,8 @@ class IndiCameraDevice(
             min = exposureMinSec,
             max = exposureMaxSec,
             step = 0.001,
-            perm = "rw"
+            perm = "rw",
+            elementName = "CCD_EXPOSURE_VALUE"
         )
         _properties.add(exposureProperty)
 
@@ -133,7 +137,8 @@ class IndiCameraDevice(
             min = gainMin,
             max = gainMax,
             step = 1.0,
-            perm = "rw"
+            perm = "rw",
+            elementName = "GAIN"
         )
         _properties.add(gainProperty)
 
@@ -197,7 +202,8 @@ class IndiCameraDevice(
             min = -50.0,
             max = 50.0,
             step = 0.0,
-            perm = "ro"
+            perm = "ro",
+            elementName = "CCD_TEMPERATURE_VALUE"
         )
         _properties.add(temperatureProperty)
 
@@ -213,7 +219,12 @@ class IndiCameraDevice(
         _properties.add(blobProperty)
     }
 
+    companion object {
+        private const val TAG = "IndiCameraDevice"
+    }
+
     override fun handleNewProperty(propertyName: String, elements: Map<String, String>) {
+        Log.d(TAG, "[$deviceName] handleNewProperty: $propertyName elements=$elements")
         when (propertyName) {
             "CONNECTION" -> handleConnection(elements)
             "CCD_EXPOSURE" -> handleExposure(elements)
@@ -277,47 +288,81 @@ class IndiCameraDevice(
 
         exposureProperty.value = seconds
         exposureProperty.state = PropertyState.Busy  // Tell client exposure is in progress
+        Log.d(TAG, "[$deviceName] Starting exposure: ${seconds}s")
 
         scope.launch {
             try {
-                // 1. Capture raw image via Camera2
                 val exposureNanos = (seconds * 1_000_000_000L).toLong()
                 val isoValue = gainProperty.value.toInt()
+                Log.d(TAG, "[$deviceName] Switching to lens ${lensInfo.physicalCameraId}")
 
-                val cameraDevice = sessionManager.switchToLens(
-                    lensInfo.physicalCameraId, lensInfo.logicalCameraId
-                ) ?: throw IllegalStateException("No camera device available")
-
-                val captureResult = rawCaptureSession?.capture(
-                    cameraDevice, lensInfo, exposureNanos, isoValue
-                ) ?: throw IllegalStateException("RawCaptureSession not configured")
-
-                // 2. Convert raw bytes to FITS (on Default dispatcher = CPU-bound)
-                val fitsBytes = withContext(Dispatchers.Default) {
-                    FitsConverter.buildFits(
-                        rawBytes = captureResult.rawBytes,
-                        width = captureResult.width,
-                        height = captureResult.height,
-                        pixelSizeX = lensInfo.pixelSizeX,
-                        pixelSizeY = lensInfo.pixelSizeY,
-                        focalLength = lensInfo.focalLength,
-                        exposureTimeSec = seconds,
-                        isoGain = isoValue,
-                        bayerPattern = bayerPattern
-                    )
+                val fitsBytes = try {
+                    captureAndConvert(exposureNanos, isoValue, seconds)
+                } catch (firstError: Exception) {
+                    // Auto-retry once after session re-open
+                    Log.w(TAG, "[$deviceName] Capture failed, retrying after session re-open", firstError)
+                    delay(500)
+                    try {
+                        captureAndConvert(exposureNanos, isoValue, seconds)
+                    } catch (retryError: Exception) {
+                        Log.e(TAG, "[$deviceName] Capture retry failed", retryError)
+                        exposureProperty.state = PropertyState.Alert
+                        onCaptureComplete?.invoke(false)
+                        return@launch
+                    }
                 }
-                // captureResult.rawBytes can now be GC'd
 
-                // 3. Stream BLOB to clients (on IO dispatcher)
+                // Stream BLOB to clients (on IO dispatcher)
                 withContext(Dispatchers.IO) {
                     blobCallback?.invoke(deviceName, fitsBytes)
                 }
+                Log.d(TAG, "[$deviceName] BLOB streamed")
 
                 exposureProperty.value = 0.0  // Remaining exposure time = 0
                 exposureProperty.state = PropertyState.Ok
+                onCaptureComplete?.invoke(true)
             } catch (e: Exception) {
+                Log.e(TAG, "[$deviceName] Capture pipeline failed", e)
                 exposureProperty.state = PropertyState.Alert
+                onCaptureComplete?.invoke(false)
             }
+        }
+    }
+
+    /**
+     * Performs a single capture attempt: switches lens, captures raw via Camera2,
+     * converts to FITS on the Default dispatcher. Throws on any failure so the
+     * caller can implement retry logic.
+     */
+    private suspend fun captureAndConvert(
+        exposureNanos: Long,
+        isoValue: Int,
+        exposureSeconds: Double
+    ): ByteArray {
+        val cameraDevice = sessionManager.switchToLens(
+            lensInfo.physicalCameraId, lensInfo.logicalCameraId
+        ) ?: throw IllegalStateException("No camera device available")
+        Log.d(TAG, "[$deviceName] Lens switch done, capturing...")
+
+        val captureResult = rawCaptureSession?.capture(
+            cameraDevice, lensInfo, exposureNanos, isoValue
+        ) ?: throw IllegalStateException("RawCaptureSession not configured")
+        Log.d(TAG, "[$deviceName] Capture done: ${captureResult.width}x${captureResult.height}, ${captureResult.rawBytes.size} bytes")
+
+        return withContext(Dispatchers.Default) {
+            FitsConverter.buildFits(
+                rawBytes = captureResult.rawBytes,
+                width = captureResult.width,
+                height = captureResult.height,
+                pixelSizeX = lensInfo.pixelSizeX,
+                pixelSizeY = lensInfo.pixelSizeY,
+                focalLength = lensInfo.focalLength,
+                exposureTimeSec = exposureSeconds,
+                isoGain = isoValue,
+                bayerPattern = bayerPattern
+            )
+        }.also {
+            Log.d(TAG, "[$deviceName] FITS conversion done: ${it.size} bytes")
         }
     }
 

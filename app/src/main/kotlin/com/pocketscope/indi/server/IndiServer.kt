@@ -49,7 +49,9 @@ class IndiServer(
     private val cameraManager: CameraManager,
     private val handler: Handler,
     private val port: Int = DEFAULT_PORT,
-    private val host: String = "0.0.0.0"
+    private val host: String = "0.0.0.0",
+    private val onClientEvent: ((String) -> Unit)? = null,
+    private val onCaptureComplete: ((success: Boolean) -> Unit)? = null
 ) {
     companion object {
         private const val TAG = "IndiServer"
@@ -92,7 +94,8 @@ class IndiServer(
                 focuserDevice.switchActiveLens(switchedLensInfo)
             },
             rawCaptureSession = rawCaptureSession,
-            blobCallback = blobCallback
+            blobCallback = blobCallback,
+            onCaptureComplete = onCaptureComplete
         )
     }
     private val allDevices: List<IndiDevice> = cameraDevices + focuserDevice
@@ -138,8 +141,10 @@ class IndiServer(
      * from all registered devices.
      */
     private suspend fun handleClient(socket: Socket) {
+        val clientIp = socket.remoteAddress.toString()
         try {
             enableKeepAlive(socket)
+            onClientEvent?.invoke("Client connected ($clientIp)")
 
             val readChannel = socket.openReadChannel()
             val writeChannel = socket.openWriteChannel(autoFlush = true)
@@ -157,6 +162,7 @@ class IndiServer(
             } finally {
                 Log.i(TAG, "Client session ended: ${socket.remoteAddress}")
                 activeSessions.remove(session)
+                onClientEvent?.invoke("Client disconnected ($clientIp)")
             }
         } catch (e: Exception) {
             Log.e(TAG, "Client error: ${e.message}", e)
