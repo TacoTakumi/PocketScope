@@ -6,6 +6,14 @@ import kotlinx.coroutines.flow.asSharedFlow
 import nl.adaptivity.xmlutil.XmlWriter
 
 /**
+ * Normalizes INDI number format strings to valid Java format strings.
+ * INDI allows "%.f" (no precision digit) meaning zero decimal places,
+ * but Java's String.format requires "%.0f".
+ */
+internal fun normalizeIndiFormat(format: String): String =
+    format.replace("%.f", "%.0f")
+
+/**
  * INDI property states as defined by the INDI protocol specification.
  */
 enum class PropertyState {
@@ -157,7 +165,7 @@ class NumberProperty(
      * Formats a double using this property's INDI format string.
      * E.g., format="%6.2f" with value=1.5 produces "  1.50".
      */
-    fun formatValue(v: Double): String = String.format(format, v)
+    fun formatValue(v: Double): String = String.format(normalizeIndiFormat(format), v)
 
     override fun writeXml(writer: XmlWriter) {
         writer.startTag(null, "defNumberVector", null)
@@ -315,14 +323,15 @@ class NumberVectorProperty(
         writer.attribute(null, "perm", null, perm)
 
         for (elem in elements) {
+            val fmt = normalizeIndiFormat(elem.format)
             writer.startTag(null, "defNumber", null)
             writer.attribute(null, "name", null, elem.name)
             writer.attribute(null, "label", null, elem.label)
             writer.attribute(null, "format", null, elem.format)
-            writer.attribute(null, "min", null, String.format(elem.format, elem.min))
-            writer.attribute(null, "max", null, String.format(elem.format, elem.max))
-            writer.attribute(null, "step", null, String.format(elem.format, elem.step))
-            writer.text(String.format(elem.format, elem.value))
+            writer.attribute(null, "min", null, String.format(fmt, elem.min))
+            writer.attribute(null, "max", null, String.format(fmt, elem.max))
+            writer.attribute(null, "step", null, String.format(fmt, elem.step))
+            writer.text(String.format(fmt, elem.value))
             writer.endTag(null, "defNumber", null)
         }
 
@@ -338,7 +347,7 @@ class NumberVectorProperty(
         for (elem in elements) {
             writer.startTag(null, "oneNumber", null)
             writer.attribute(null, "name", null, elem.name)
-            writer.text(String.format(elem.format, elem.value))
+            writer.text(String.format(normalizeIndiFormat(elem.format), elem.value))
             writer.endTag(null, "oneNumber", null)
         }
 

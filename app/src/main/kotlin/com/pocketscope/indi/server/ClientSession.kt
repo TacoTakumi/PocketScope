@@ -4,6 +4,7 @@ package com.pocketscope.indi.server
 
 import android.util.Base64
 import android.util.Base64OutputStream
+import android.util.Log
 import com.pocketscope.indi.device.IndiDevice
 import com.pocketscope.indi.protocol.IndiProtocolParser
 import kotlinx.coroutines.Dispatchers
@@ -38,6 +39,9 @@ class ClientSession(
     private val outputStream: OutputStream,
     private val devices: List<IndiDevice>
 ) {
+    companion object {
+        private const val TAG = "ClientSession"
+    }
     private val writer = OutputStreamWriter(outputStream, Charsets.UTF_8)
 
     // Track BLOB enable state per device. Values: "Never" (default), "Also", "Only"
@@ -77,10 +81,13 @@ class ClientSession(
         launch(Dispatchers.IO) {
             val parser = IndiProtocolParser(inputStream)
             parser.parseStream { name, attributes, elements ->
+                Log.d(TAG, "Received command: $name attrs=$attributes")
                 when (name) {
                     "getProperties" -> {
                         synchronized(writer) {
+                            Log.d(TAG, "Sending property definitions for ${devices.size} devices")
                             sendPropertyDefinitions()
+                            Log.d(TAG, "Property definitions sent")
                         }
                     }
                     "newNumberVector", "newSwitchVector", "newTextVector" -> {

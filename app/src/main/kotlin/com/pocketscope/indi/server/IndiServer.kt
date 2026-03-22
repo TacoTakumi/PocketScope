@@ -2,6 +2,7 @@ package com.pocketscope.indi.server
 
 import android.hardware.camera2.CameraManager
 import android.os.Handler
+import android.util.Log
 import com.pocketscope.camera.CameraSessionManager
 import com.pocketscope.camera.LensEnumerator
 import com.pocketscope.camera.RawCaptureSession
@@ -51,6 +52,7 @@ class IndiServer(
     private val host: String = "0.0.0.0"
 ) {
     companion object {
+        private const val TAG = "IndiServer"
         /** Standard INDI protocol port. */
         const val DEFAULT_PORT = 7624
     }
@@ -114,9 +116,12 @@ class IndiServer(
                 reuseAddress = true
             }
 
+        Log.i(TAG, "INDI server listening on $host:$port with ${allDevices.size} devices (${lenses.size} lenses)")
+
         acceptJob = launch {
             while (isActive) {
                 val clientSocket = serverSocket!!.accept()
+                Log.i(TAG, "Client connected: ${clientSocket.remoteAddress}")
                 launch {
                     handleClient(clientSocket)
                 }
@@ -150,10 +155,11 @@ class IndiServer(
             try {
                 session.handleCommands()
             } finally {
+                Log.i(TAG, "Client session ended: ${socket.remoteAddress}")
                 activeSessions.remove(session)
             }
-        } catch (_: Exception) {
-            // Client disconnected or connection error
+        } catch (e: Exception) {
+            Log.e(TAG, "Client error: ${e.message}", e)
         } finally {
             try {
                 socket.close()
