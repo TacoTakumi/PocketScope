@@ -37,6 +37,13 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
 
+    applicationVariants.all {
+        outputs.all {
+            (this as com.android.build.gradle.internal.api.BaseVariantOutputImpl)
+                .outputFileName = "PocketScope-${versionName}.apk"
+        }
+    }
+
     buildTypes {
         release {
             isMinifyEnabled = false
