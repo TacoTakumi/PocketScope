@@ -1,6 +1,6 @@
 # PocketScope
 
-Turn your Android phone into a fully-featured INDI astronomy camera and mount controller. PocketScope connects to any INDI client over WiFi and presents your phone's cameras as real CCD devices — indistinguishable from dedicated astronomy hardware.
+Turn your Android phone into a fully-featured INDI astronomy camera. PocketScope connects to any INDI client over WiFi and presents your phone's cameras as real CCD devices — indistinguishable from dedicated astronomy hardware.
 
 **Free. Open source. No extra hardware required.**
 
