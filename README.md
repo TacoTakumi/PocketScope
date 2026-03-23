@@ -73,7 +73,11 @@ adb install app/build/outputs/apk/debug/app-debug.apk
 
 **Quick test without a full client:**
 ```bash
-python3 tests/indi_test_client.py <phone-ip>
+# pyindi-client requires libindi-dev to build its native bindings
+sudo apt install libindi-dev    # Debian/Ubuntu
+pip install -r tests/requirements.txt
+
+python3 tests/indi_test_client.py --host <phone-ip>
 ```
 
 ## INDI Device Names
