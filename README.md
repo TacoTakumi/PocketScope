@@ -49,7 +49,7 @@ Modern smartphones have exceptional camera sensors, multi-lens systems, and moto
 
 Download the latest APK from [Releases](https://github.com/TacoTakumi/PocketScope/releases):
 
-1. On your phone, download `app-release.apk` from the latest release
+1. On your phone, download `PocketScope-<version>.apk` from the latest release
 2. Tap the downloaded file to install (you may need to enable "Install from unknown sources" for your browser in Settings > Apps > Special access)
 3. Grant camera and location permissions when prompted
 
@@ -59,7 +59,7 @@ Download the latest APK from [Releases](https://github.com/TacoTakumi/PocketScop
 git clone https://github.com/TacoTakumi/PocketScope.git
 cd PocketScope
 ./gradlew assembleRelease
-adb install app/build/outputs/apk/release/app-release.apk
+adb install app/build/outputs/apk/release/PocketScope-*.apk
 ```
 
 **Dependencies** (handled by Gradle):
