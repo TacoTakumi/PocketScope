@@ -28,3 +28,7 @@ venv/
 # GSD crash/state logs
 gsd-crash
 gsd-state
+
+# Release signing
+keystore.properties
+*.jks
