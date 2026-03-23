@@ -33,6 +33,7 @@ Modern smartphones have exceptional camera sensors, multi-lens systems, and moto
 **Phone:**
 - Android 10+ (API 29)
 - Rear camera(s) with RAW_SENSOR support (most modern flagships)
+- **iOS is not supported** — Apple does not expose unprocessed linear Bayer sensor data to third-party apps. Astronomy calibration (darks, flats, bias) requires raw data before any computational processing. If Apple opens this access in the future, an iOS port becomes feasible.
 
 **Desktop — any INDI client, for example:**
 - [KStars/Ekos](https://edu.kde.org/kstars/) — full-featured planetarium with capture, focusing, and guiding
