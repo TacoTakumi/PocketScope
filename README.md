@@ -45,18 +45,21 @@ Modern smartphones have exceptional camera sensors, multi-lens systems, and moto
 
 **Verified on:** Google Pixel 6 Pro — Samsung GN1 (main, 50MP, ~2.5"/px), Sony IMX481 (ultrawide, 12MP, ~7–8"/px), Samsung GM1 (telephoto 4x, 48MP, ~0.8"/px)
 
-## Build & Install
+## Install
+
+Download the latest APK from [Releases](https://github.com/TacoTakumi/PocketScope/releases):
+
+1. On your phone, download `app-release.apk` from the latest release
+2. Tap the downloaded file to install (you may need to enable "Install from unknown sources" for your browser in Settings > Apps > Special access)
+3. Grant camera and location permissions when prompted
+
+## Build from Source
 
 ```bash
 git clone https://github.com/TacoTakumi/PocketScope.git
 cd PocketScope
-```
-
-Open in Android Studio and build, or from the command line:
-
-```bash
-./gradlew assembleDebug
-adb install app/build/outputs/apk/debug/app-debug.apk
+./gradlew assembleRelease
+adb install app/build/outputs/apk/release/app-release.apk
 ```
 
 **Dependencies** (handled by Gradle):
