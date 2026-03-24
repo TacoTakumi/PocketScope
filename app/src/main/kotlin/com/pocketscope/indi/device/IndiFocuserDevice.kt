@@ -1,6 +1,7 @@
 package com.pocketscope.indi.device
 
 import com.pocketscope.camera.LensInfo
+import com.pocketscope.device.FocuserDevice
 import com.pocketscope.indi.properties.*
 
 /**
@@ -19,19 +20,15 @@ import com.pocketscope.indi.properties.*
  * Per D-13: Retains position on reconnection (position is in-memory state).
  * Per D-14: Position resets to 0 when active lens changes.
  */
-class IndiFocuserDevice : IndiDevice {
-
-    companion object {
-        const val FOCUS_MAX_STEPS = 1000
-    }
+class IndiFocuserDevice(
+    private val focuserDevice: FocuserDevice
+) : IndiDevice {
 
     override val deviceName = "PocketScope Focuser"
 
     private val _properties = mutableListOf<IndiProperty>()
     override val properties: List<IndiProperty> get() = _properties
 
-    private var activeLensInfo: LensInfo? = null
-    private var currentPosition: Int = 0
     private var focusDirection: String = "FOCUS_OUTWARD"  // default direction
 
     // --- INDI properties ---
@@ -56,7 +53,7 @@ class IndiFocuserDevice : IndiDevice {
         format = "%.f",
         value = 0.0,
         min = 0.0,
-        max = FOCUS_MAX_STEPS.toDouble(),
+        max = focuserDevice.maxSteps.toDouble(),
         step = 1.0,
         perm = "rw",
         elementName = "FOCUS_ABSOLUTE_POSITION"
@@ -71,7 +68,7 @@ class IndiFocuserDevice : IndiDevice {
         format = "%.f",
         value = 0.0,
         min = 0.0,
-        max = FOCUS_MAX_STEPS.toDouble(),
+        max = focuserDevice.maxSteps.toDouble(),
         step = 1.0,
         perm = "rw",
         elementName = "FOCUS_RELATIVE_POSITION"
@@ -84,7 +81,7 @@ class IndiFocuserDevice : IndiDevice {
         group = "Main Control",
         initialState = PropertyState.Idle,
         format = "%.f",
-        value = FOCUS_MAX_STEPS.toDouble(),
+        value = focuserDevice.maxSteps.toDouble(),
         min = 1000.0,
         max = 1000000.0,
         step = 10000.0,
@@ -128,7 +125,7 @@ class IndiFocuserDevice : IndiDevice {
     // --- Command handling ---
 
     override fun handleNewProperty(propertyName: String, elements: Map<String, String>) {
-        if (activeLensInfo == null && propertyName != "CONNECTION") {
+        if (focuserDevice.activeLensInfo == null && propertyName != "CONNECTION") {
             // Per D-16: reject commands when no active lens
             findProperty(propertyName)?.state = PropertyState.Alert
             return
@@ -157,19 +154,16 @@ class IndiFocuserDevice : IndiDevice {
 
     private fun handleAbsPosition(elements: Map<String, String>) {
         val requested = elements["FOCUS_ABSOLUTE_POSITION"]?.toIntOrNull() ?: return
-        currentPosition = requested.coerceIn(0, FOCUS_MAX_STEPS)
-        absFocusPosition.value = currentPosition.toDouble()
+        val clamped = focuserDevice.moveAbsolute(requested)
+        absFocusPosition.value = clamped.toDouble()
         absFocusPosition.state = PropertyState.Ok
     }
 
     private fun handleRelPosition(elements: Map<String, String>) {
         val steps = elements["FOCUS_RELATIVE_POSITION"]?.toIntOrNull() ?: return
-        currentPosition = if (focusDirection == "FOCUS_OUTWARD") {
-            (currentPosition + steps)
-        } else {
-            (currentPosition - steps)
-        }.coerceIn(0, FOCUS_MAX_STEPS)
-        absFocusPosition.value = currentPosition.toDouble()
+        val outward = focusDirection == "FOCUS_OUTWARD"
+        val newPos = focuserDevice.moveRelative(steps, outward)
+        absFocusPosition.value = newPos.toDouble()
         absFocusPosition.state = PropertyState.Ok
         relFocusPosition.state = PropertyState.Ok
     }
@@ -201,8 +195,7 @@ class IndiFocuserDevice : IndiDevice {
      * @param newLensInfo the new lens info, or null to disconnect the focuser
      */
     fun switchActiveLens(newLensInfo: LensInfo?) {
-        activeLensInfo = newLensInfo
-        currentPosition = 0  // Per D-14: reset on lens switch
+        focuserDevice.switchActiveLens(newLensInfo)
         absFocusPosition.value = 0.0
         absFocusPosition.state = PropertyState.Idle
     }
@@ -216,10 +209,7 @@ class IndiFocuserDevice : IndiDevice {
      *
      * @return diopter value for Camera2 LENS_FOCUS_DISTANCE, or 0.0 if no lens
      */
-    fun currentDiopters(): Float {
-        val minFocus = activeLensInfo?.minFocusDistance ?: return 0f
-        return (currentPosition.toFloat() / FOCUS_MAX_STEPS) * minFocus
-    }
+    fun currentDiopters(): Float = focuserDevice.currentDiopters()
 
     private fun findProperty(name: String): IndiProperty? = _properties.find { it.name == name }
 }

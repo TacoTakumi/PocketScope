@@ -1,12 +1,13 @@
 package com.pocketscope.indi.device
 
 import android.graphics.Rect
-import android.hardware.camera2.CameraDevice
 import android.util.Range
 import android.util.Size
 import android.util.SizeF
-import com.pocketscope.camera.CameraSessionContract
 import com.pocketscope.camera.LensInfo
+import com.pocketscope.camera.CaptureResult
+import com.pocketscope.device.CaptureDevice
+import com.pocketscope.device.CaptureOutcome
 import com.pocketscope.indi.properties.BlobProperty
 import com.pocketscope.indi.properties.NumberProperty
 import com.pocketscope.indi.properties.NumberVectorProperty
@@ -28,7 +29,7 @@ import org.robolectric.annotation.Config
 /**
  * Tests for [IndiCameraDevice] - INDI CCD device per physical lens.
  *
- * Uses a [FakeCameraSessionContract] to avoid Camera2 runtime dependencies.
+ * Uses a [FakeCaptureDevice] to avoid Camera2 runtime dependencies.
  * Tests property creation, value handling, range validation, and connection logic.
  * Runs under Robolectric for real Android SDK types (Size, Range, Rect).
  */
@@ -38,7 +39,7 @@ import org.robolectric.annotation.Config
 class IndiCameraDeviceTest {
 
     private lateinit var testLensInfo: LensInfo
-    private lateinit var fakeSession: FakeCameraSessionContract
+    private lateinit var fakeDevice: FakeCaptureDevice
 
     @Before
     fun setUp() {
@@ -57,15 +58,14 @@ class IndiCameraDeviceTest {
             activeArraySize = Rect(0, 0, 4032, 3024)
         )
 
-        fakeSession = FakeCameraSessionContract()
+        fakeDevice = FakeCaptureDevice(testLensInfo)
     }
 
     private fun createDevice(
-        lens: LensInfo = testLensInfo,
-        session: FakeCameraSessionContract = fakeSession,
+        captureDevice: FakeCaptureDevice = fakeDevice,
         scope: kotlinx.coroutines.CoroutineScope = kotlinx.coroutines.GlobalScope,
         onLensSwitch: ((LensInfo) -> Unit)? = null
-    ): IndiCameraDevice = IndiCameraDevice(lens, session, scope, onLensSwitch)
+    ): IndiCameraDevice = IndiCameraDevice(captureDevice, scope, onLensSwitch)
 
     // --- Device name tests ---
 
@@ -78,14 +78,16 @@ class IndiCameraDeviceTest {
     @Test
     fun `device name for ultrawide lens`() = runTest {
         val ultrawideLens = testLensInfo.copy(focalLength = 2.0f)
-        val device = createDevice(lens = ultrawideLens, scope = this)
+        val ultrawideDevice = FakeCaptureDevice(ultrawideLens)
+        val device = createDevice(captureDevice = ultrawideDevice, scope = this)
         assertEquals("PocketScope Ultrawide", device.deviceName)
     }
 
     @Test
     fun `device name for main lens`() = runTest {
         val mainLens = testLensInfo.copy(focalLength = 4.5f)
-        val device = createDevice(lens = mainLens, scope = this)
+        val mainDevice = FakeCaptureDevice(mainLens)
+        val device = createDevice(captureDevice = mainDevice, scope = this)
         assertEquals("PocketScope Main", device.deviceName)
     }
 
@@ -181,20 +183,37 @@ class IndiCameraDeviceTest {
     // --- handleNewProperty: CCD_EXPOSURE ---
 
     @Test
-    fun `handleNewProperty CCD_EXPOSURE sets Busy then Alert when rawCaptureSession is null`() = runTest {
+    fun `handleNewProperty CCD_EXPOSURE sets Busy then Alert when capture errors out`() = runTest {
         val device = createDevice(scope = this)
 
         // Connect first
-        fakeSession.shouldSucceed = true
         device.handleNewProperty("CONNECTION", mapOf("CONNECT" to "On"))
         advanceUntilIdle()
+
+        fakeDevice.outcome = CaptureOutcome.Error(RuntimeException("test error"))
 
         device.handleNewProperty("CCD_EXPOSURE", mapOf("CCD_EXPOSURE_VALUE" to "5.0"))
         advanceUntilIdle()
 
         val prop = device.properties.find { it.name == "CCD_EXPOSURE" } as NumberProperty
         assertEquals(5.0, prop.value, 0.01)
-        // Without rawCaptureSession, capture fails and state becomes Alert
+        // Retry fails too, sets state to Alert
+        assertEquals(PropertyState.Alert, prop.state)
+    }
+
+    @Test
+    fun `handleNewProperty CCD_EXPOSURE sets Alert when busy`() = runTest {
+        val device = createDevice(scope = this)
+
+        device.handleNewProperty("CONNECTION", mapOf("CONNECT" to "On"))
+        advanceUntilIdle()
+
+        fakeDevice.outcome = CaptureOutcome.Busy
+
+        device.handleNewProperty("CCD_EXPOSURE", mapOf("CCD_EXPOSURE_VALUE" to "5.0"))
+        advanceUntilIdle()
+
+        val prop = device.properties.find { it.name == "CCD_EXPOSURE" } as NumberProperty
         assertEquals(PropertyState.Alert, prop.state)
     }
 
@@ -205,7 +224,6 @@ class IndiCameraDeviceTest {
         val device = createDevice(scope = this)
 
         // Connect first
-        fakeSession.shouldSucceed = true
         device.handleNewProperty("CONNECTION", mapOf("CONNECT" to "On"))
         advanceUntilIdle()
 
@@ -237,7 +255,6 @@ class IndiCameraDeviceTest {
             onLensSwitch = { callbackLensInfo = it }
         )
 
-        fakeSession.shouldSucceed = true
         device.handleNewProperty("CONNECTION", mapOf("CONNECT" to "On"))
         advanceUntilIdle()
 
@@ -250,7 +267,6 @@ class IndiCameraDeviceTest {
     fun `handleConnection CONNECT sets Ok state after successful switch`() = runTest {
         val device = createDevice(scope = this)
 
-        fakeSession.shouldSucceed = true
         device.handleNewProperty("CONNECTION", mapOf("CONNECT" to "On"))
         advanceUntilIdle()
 
@@ -302,7 +318,6 @@ class IndiCameraDeviceTest {
         val device = createDevice(scope = this)
 
         // Connect first
-        fakeSession.shouldSucceed = true
         device.handleNewProperty("CONNECTION", mapOf("CONNECT" to "On"))
         advanceUntilIdle()
 
@@ -319,33 +334,18 @@ class IndiCameraDeviceTest {
 }
 
 /**
- * Fake implementation of [CameraSessionContract] for unit testing.
- *
- * Returns null for CameraDevice (tests don't need the actual device object),
- * or throws if [shouldSucceed] is false.
+ * Fake implementation of [CaptureDevice] for unit testing.
  */
-class FakeCameraSessionContract : CameraSessionContract {
-    var shouldSucceed = true
-    var switchCallCount = 0
-    var lastPhysicalId: String? = null
-    var lastLogicalId: String? = null
+class FakeCaptureDevice(override val lensInfo: LensInfo) : CaptureDevice {
+    var callCount = 0
+    override var isBusy: Boolean = false
 
-    override suspend fun switchToLens(physicalCameraId: String, logicalCameraId: String?): CameraDevice? {
-        switchCallCount++
-        lastPhysicalId = physicalCameraId
-        lastLogicalId = logicalCameraId
-        if (!shouldSucceed) {
-            throw RuntimeException("Fake camera error")
-        }
-        // Return null -- tests only verify INDI property behavior,
-        // not CameraDevice usage.
-        return null
-    }
+    var outcome: CaptureOutcome = CaptureOutcome.Success(
+        CaptureResult(ByteArray(10), 10, 1)
+    )
 
-    override fun getActiveLensId(): String? = lastPhysicalId
-
-    override fun closeAll() {
-        lastPhysicalId = null
-        lastLogicalId = null
+    override suspend fun capture(exposureNanos: Long, isoValue: Int): CaptureOutcome {
+        callCount++
+        return outcome
     }
 }

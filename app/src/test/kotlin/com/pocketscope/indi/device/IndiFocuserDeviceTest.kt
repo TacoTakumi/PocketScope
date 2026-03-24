@@ -8,6 +8,7 @@ import android.util.Range
 import android.util.Size
 import android.util.SizeF
 import com.pocketscope.camera.LensInfo
+import com.pocketscope.device.FocuserDeviceImpl
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -41,7 +42,7 @@ class IndiFocuserDeviceTest {
 
     @Before
     fun setUp() {
-        focuser = IndiFocuserDevice()
+        focuser = IndiFocuserDevice(FocuserDeviceImpl())
         // Activate a lens so focuser is operational
         focuser.switchActiveLens(testLensInfo())
     }
@@ -164,7 +165,7 @@ class IndiFocuserDeviceTest {
 
     @Test
     fun `handleNewProperty on disconnected focuser sets Alert state`() {
-        val disconnectedFocuser = IndiFocuserDevice() // no lens activated
+        val disconnectedFocuser = IndiFocuserDevice(FocuserDeviceImpl()) // no lens activated
         disconnectedFocuser.handleNewProperty("ABS_FOCUS_POSITION", mapOf("FOCUS_ABSOLUTE_POSITION" to "500"))
         val prop = disconnectedFocuser.properties.find { it.name == "ABS_FOCUS_POSITION" }!!
         assertEquals(PropertyState.Alert, prop.state)
