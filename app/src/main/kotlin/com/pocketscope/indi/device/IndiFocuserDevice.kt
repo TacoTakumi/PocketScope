@@ -38,9 +38,9 @@ class IndiFocuserDevice(
         name = "CONNECTION",
         label = "Connection",
         group = "Main Control",
-        initialState = PropertyState.Idle,
+        initialState = PropertyState.Ok,
         rule = "OneOfMany",
-        options = mutableMapOf("CONNECT" to false, "DISCONNECT" to true),
+        options = mutableMapOf("CONNECT" to true, "DISCONNECT" to false),
         perm = "rw"
     )
 

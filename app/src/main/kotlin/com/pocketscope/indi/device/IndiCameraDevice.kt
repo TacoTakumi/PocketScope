@@ -50,7 +50,7 @@ class IndiCameraDevice(
     private val _properties = mutableListOf<IndiProperty>()
     override val properties: List<IndiProperty> get() = _properties
 
-    var isConnected: Boolean = false
+    var isConnected: Boolean = true
         private set
 
     // Exposure range: Camera2 nanoseconds -> INDI seconds (per pitfall 3)
@@ -82,9 +82,9 @@ class IndiCameraDevice(
             name = "CONNECTION",
             label = "Connection",
             group = "Main Control",
-            initialState = PropertyState.Idle,
+            initialState = PropertyState.Ok,
             rule = "OneOfMany",
-            options = mutableMapOf("CONNECT" to false, "DISCONNECT" to true),
+            options = mutableMapOf("CONNECT" to true, "DISCONNECT" to false),
             perm = "rw"
         )
         _properties.add(connectionProperty)
