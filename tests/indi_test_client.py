@@ -287,6 +287,129 @@ def capture_image(client, device_name, exposure_sec, output_path, timeout=None):
         return False
 
 
+def focus_move(client, device_name, prop_name, element_name, value, timeout=10):
+    """Send a focus move command and wait for state=Ok on ABS_FOCUS_POSITION.
+
+    Args:
+        client: PocketScopeClient instance
+        device_name: Focuser device name
+        prop_name: Property name (ABS_FOCUS_POSITION or REL_FOCUS_POSITION)
+        element_name: Element name within the property
+        value: Numeric value to set
+        timeout: Seconds to wait for Ok state
+
+    Returns:
+        True if move completed (state=Ok), False on timeout
+    """
+    if not wait_for_property(client, device_name, prop_name):
+        log.error(f"{prop_name} property not available on {device_name}")
+        return False
+
+    device = client.getDevice(device_name)
+    if not device:
+        log.error(f"Device '{device_name}' not found")
+        return False
+
+    num_prop = device.getNumber(prop_name)
+    if not num_prop:
+        log.error(f"Could not get {prop_name} number property")
+        return False
+
+    # Set the element value
+    for w in num_prop:
+        if w.getName() == element_name:
+            w.setValue(float(value))
+            break
+    else:
+        log.error(f"Element {element_name} not found in {prop_name}")
+        return False
+
+    # Track state changes on ABS_FOCUS_POSITION via updateProperty callback
+    move_done = threading.Event()
+    original_update = client.updateProperty.__func__ if hasattr(client.updateProperty, '__func__') else None
+
+    def _watch_focus_state(p):
+        """Intercept updateProperty to detect ABS_FOCUS_POSITION state=Ok."""
+        pname = p.getName()
+        pdevice = p.getDeviceName()
+        if pdevice == device_name and pname == "ABS_FOCUS_POSITION":
+            prop = PyIndi.PropertyNumber(p)
+            state = prop.getStateAsString()
+            if state == "Ok":
+                move_done.set()
+
+    # Monkey-patch updateProperty to also watch for focus state
+    _orig_update = type(client).updateProperty
+    def _patched_update(self, p):
+        _orig_update(self, p)
+        _watch_focus_state(p)
+    type(client).updateProperty = _patched_update
+
+    log.info(f"Sending {prop_name} {element_name}={value}")
+    client.sendNewNumber(num_prop)
+
+    success = move_done.wait(timeout)
+
+    # Restore original updateProperty
+    type(client).updateProperty = _orig_update
+
+    if success:
+        # Read back absolute position
+        if wait_for_property(client, device_name, "ABS_FOCUS_POSITION"):
+            abs_prop = device.getNumber("ABS_FOCUS_POSITION")
+            if abs_prop:
+                pos = abs_prop[0].getValue()
+                log.info(f"Focus move complete. Position: {pos}")
+        return True
+    else:
+        log.error(f"Focus move timed out after {timeout}s")
+        return False
+
+
+def focus_info(client, device_name, timeout=10):
+    """Print focuser properties: position, range, direction."""
+    device = client.getDevice(device_name)
+    if not device:
+        log.error(f"Device '{device_name}' not found")
+        return
+
+    log.info(f"\n{'='*60}")
+    log.info(f"Focuser info: {device_name}")
+    log.info(f"{'='*60}")
+
+    # ABS_FOCUS_POSITION
+    if wait_for_property(client, device_name, "ABS_FOCUS_POSITION", timeout):
+        prop = device.getNumber("ABS_FOCUS_POSITION")
+        if prop:
+            for w in prop:
+                log.info(f"  ABS_FOCUS_POSITION: {w.getValue()} "
+                         f"[min={w.getMin()}, max={w.getMax()}]")
+
+    # REL_FOCUS_POSITION
+    if wait_for_property(client, device_name, "REL_FOCUS_POSITION", timeout):
+        prop = device.getNumber("REL_FOCUS_POSITION")
+        if prop:
+            for w in prop:
+                log.info(f"  REL_FOCUS_POSITION: {w.getValue()} "
+                         f"[min={w.getMin()}, max={w.getMax()}]")
+
+    # FOCUS_MAX
+    if wait_for_property(client, device_name, "FOCUS_MAX", timeout):
+        prop = device.getNumber("FOCUS_MAX")
+        if prop:
+            for w in prop:
+                log.info(f"  FOCUS_MAX: {w.getValue()}")
+
+    # FOCUS_MOTION
+    if wait_for_property(client, device_name, "FOCUS_MOTION", timeout):
+        prop = device.getSwitch("FOCUS_MOTION")
+        if prop:
+            for w in prop:
+                log.info(f"  FOCUS_MOTION: {w.getName()} = {w.getStateAsString()}")
+
+    log.info(f"{'='*60}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="PocketScope INDI test client")
     parser.add_argument("--host", default="localhost",
@@ -294,16 +417,30 @@ def main():
     parser.add_argument("--port", type=int, default=7624,
                         help="INDI server port (default: 7624)")
     parser.add_argument("--device", default=None,
-                        help="Device name (auto-detects first PocketScope device if omitted)")
+                        help="Device name (auto-detects first PocketScope CCD device if omitted)")
+    parser.add_argument("--focus-device", default="PocketScope Focuser",
+                        help="Focuser device name (default: PocketScope Focuser)")
     parser.add_argument("--connect", action="store_true",
                         help="Connect to the device (send CONNECTION)")
     parser.add_argument("--capture", type=float, default=None, metavar="SEC",
                         help="Capture an image with this exposure time (seconds)")
     parser.add_argument("--output", "-o", default="capture.fits",
                         help="Output FITS path (default: capture.fits)")
+    parser.add_argument("--focus-abs", type=int, default=None, metavar="POS",
+                        help="Set absolute focus position")
+    parser.add_argument("--focus-rel", type=int, default=None, metavar="STEPS",
+                        help="Move focus relative (positive steps in current direction)")
+    parser.add_argument("--focus-info", action="store_true",
+                        help="Print focuser properties (position, range, direction)")
     parser.add_argument("--wait", type=float, default=3,
                         help="Seconds to wait for device discovery (default: 3)")
     args = parser.parse_args()
+
+    # Focus commands imply --connect
+    has_focus_action = (args.focus_abs is not None or args.focus_rel is not None
+                        or args.focus_info)
+    if has_focus_action:
+        args.connect = True
 
     client = PocketScopeClient()
     client.setServer(args.host, args.port)
@@ -319,7 +456,7 @@ def main():
     if not device_names:
         sys.exit(1)
 
-    # Pick device
+    # Pick CCD device for capture/connect
     target = args.device
     if target is None:
         # Auto-detect first PocketScope device
@@ -341,8 +478,30 @@ def main():
         if not capture_image(client, target, args.capture, args.output):
             sys.exit(1)
 
+    # Focus commands target the focuser device
+    if has_focus_action:
+        focus_target = args.focus_device
+        # Connect the focuser device if it's different from the CCD target
+        if focus_target != target:
+            if not connect_device(client, focus_target):
+                log.error(f"Could not connect to focuser device: {focus_target}")
+                sys.exit(1)
+
+        if args.focus_info:
+            focus_info(client, focus_target)
+
+        if args.focus_abs is not None:
+            if not focus_move(client, focus_target, "ABS_FOCUS_POSITION",
+                              "FOCUS_ABSOLUTE_POSITION", args.focus_abs):
+                sys.exit(1)
+
+        if args.focus_rel is not None:
+            if not focus_move(client, focus_target, "REL_FOCUS_POSITION",
+                              "FOCUS_RELATIVE_POSITION", args.focus_rel):
+                sys.exit(1)
+
     # If no action requested, just list and exit
-    if not args.connect and args.capture is None:
+    if not args.connect and args.capture is None and not has_focus_action:
         log.info("Done. Use --connect and/or --capture to interact with devices.")
 
     # Keep alive briefly to catch any trailing messages
