@@ -65,6 +65,7 @@ android {
     testOptions {
         unitTests {
             isReturnDefaultValues = true
+            isIncludeAndroidResources = true
         }
     }
 
@@ -76,6 +77,13 @@ android {
 dependencies {
     testImplementation("org.mockito:mockito-core:4.11.0")
     testImplementation("org.mockito.kotlin:mockito-kotlin:4.1.0")
+
+    // DataStore (settings persistence)
+    implementation("androidx.datastore:datastore-preferences:1.2.1")
+
+    // Navigation Compose
+    implementation("androidx.navigation:navigation-compose:2.9.7")
+
     // Networking (TCP Server)
     implementation("io.ktor:ktor-network:3.4.1")
 
@@ -109,4 +117,5 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     testImplementation("org.jetbrains.kotlinx:kotlinx-coroutines-test:1.10.2")
     testImplementation("org.robolectric:robolectric:4.14.1")
+    testImplementation("androidx.test:core:1.6.1")
 }
