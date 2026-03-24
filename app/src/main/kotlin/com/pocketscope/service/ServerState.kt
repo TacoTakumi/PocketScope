@@ -13,5 +13,10 @@ data class ServerState(
     val eventLog: List<String> = emptyList(),
     // Phase 4: Battery warning
     val lowBattery: Boolean = false,
-    val batteryPercent: Int = 100
+    val batteryPercent: Int = 100,
+    // Phase 7: Protocol toggles
+    val isIndiEnabled: Boolean = true,
+    val isAlpacaEnabled: Boolean = false,
+    // Phase 7: Pending connection approval
+    val pendingApprovalIp: String? = null
 )

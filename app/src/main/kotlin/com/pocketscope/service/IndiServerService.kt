@@ -18,12 +18,15 @@ import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.pocketscope.device.DeviceRegistry
 import com.pocketscope.indi.server.IndiServer
+import com.pocketscope.network.ApprovalManager
+import com.pocketscope.settings.SettingsRepository
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -36,6 +39,8 @@ class IndiServerService : Service() {
         val state = MutableStateFlow(ServerState())
         private const val CHANNEL_ID = "pocketscope_indi"
         private const val NOTIFICATION_ID = 1
+        private const val APPROVAL_CHANNEL_ID = "pocketscope_approval"
+        private const val APPROVAL_NOTIFICATION_ID = 2
     }
 
     private var deviceRegistry: DeviceRegistry? = null
@@ -44,6 +49,9 @@ class IndiServerService : Service() {
     private var clientCountJob: Job? = null
     private var cameraThread: HandlerThread? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+
+    private var settingsRepo: SettingsRepository? = null
+    private var approvalManager: ApprovalManager? = null
 
     private var wakeLock: PowerManager.WakeLock? = null
     private var serverStartElapsedRealtime: Long = 0L
@@ -82,9 +90,17 @@ class IndiServerService : Service() {
         val registry = DeviceRegistry(cameraManager, handler)
         deviceRegistry = registry
 
+        // Initialize network security components
+        val settings = SettingsRepository(applicationContext)
+        settingsRepo = settings
+        val approval = ApprovalManager(settings)
+        approvalManager = approval
+        ApprovalManager.instance = approval  // Expose to UI layer
+
         val indiServer = IndiServer(
             registry = registry,
             scope = serviceScope,
+            approvalManager = approval,
             onClientEvent = { event -> addEvent(event) },
             onCaptureComplete = { success ->
                 state.update { current ->
@@ -104,8 +120,46 @@ class IndiServerService : Service() {
 
         serverStartElapsedRealtime = SystemClock.elapsedRealtime()
 
-        serverJob = serviceScope.launch {
-            indiServer.start()
+        // Observe INDI toggle and dynamically start/stop the protocol server
+        serviceScope.launch {
+            settings.isIndiEnabled.collectLatest { enabled ->
+                state.update { it.copy(isIndiEnabled = enabled) }
+                if (enabled) {
+                    if (serverJob == null || serverJob?.isActive != true) {
+                        serverJob = serviceScope.launch { indiServer.start() }
+                        addEvent("INDI protocol started")
+                    }
+                } else {
+                    // Per locked decision: abort any in-progress camera exposure
+                    // before tearing down the INDI server. CaptureDevice.capture()
+                    // is a suspend function guarded by a Mutex -- cancelling
+                    // serverJob propagates CancellationException through the
+                    // coroutine tree, which interrupts any active capture() call.
+                    serverJob?.cancel()
+                    serverJob = null
+                    indiServer.stop()
+                    addEvent("INDI protocol stopped (active exposures aborted)")
+                }
+            }
+        }
+
+        // Observe pending approval to update ServerState and show notification
+        serviceScope.launch {
+            approval.pendingApproval.collect { request ->
+                state.update { it.copy(pendingApprovalIp = request?.ip) }
+                if (request != null) {
+                    showApprovalNotification(request.ip)
+                } else {
+                    dismissApprovalNotification()
+                }
+            }
+        }
+
+        // Observe Alpaca toggle for ServerState (protocol not built yet, just state tracking)
+        serviceScope.launch {
+            settings.isAlpacaEnabled.collectLatest { enabled ->
+                state.update { it.copy(isAlpacaEnabled = enabled) }
+            }
         }
 
         // Periodically update connected client count, uptime, battery, and memory
@@ -152,7 +206,16 @@ class IndiServerService : Service() {
         serverJob?.cancel()
         server?.stop()
         server = null
+
+        // DeviceRegistry lifecycle owned by service, not protocol server
+        deviceRegistry?.closeAll()
         deviceRegistry = null
+
+        // Clean up network security components
+        ApprovalManager.instance = null
+        approvalManager = null
+        settingsRepo = null
+
         cameraThread?.quitSafely()
         cameraThread = null
         state.value = ServerState()
@@ -176,6 +239,8 @@ class IndiServerService : Service() {
     }
 
     private fun createNotificationChannel() {
+        val notificationManager = getSystemService(NotificationManager::class.java)
+
         val channel = NotificationChannel(
             CHANNEL_ID,
             "INDI Server",
@@ -183,8 +248,33 @@ class IndiServerService : Service() {
         ).apply {
             description = "Shows when the INDI server is running"
         }
+        notificationManager.createNotificationChannel(channel)
+
+        val approvalChannel = NotificationChannel(
+            APPROVAL_CHANNEL_ID,
+            "Connection Approval",
+            NotificationManager.IMPORTANCE_HIGH
+        ).apply {
+            description = "Alerts when a new device tries to connect"
+        }
+        notificationManager.createNotificationChannel(approvalChannel)
+    }
+
+    private fun showApprovalNotification(ip: String) {
+        val notification = NotificationCompat.Builder(this, APPROVAL_CHANNEL_ID)
+            .setContentTitle("New Connection")
+            .setContentText("$ip wants to connect")
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setPriority(NotificationCompat.PRIORITY_HIGH)
+            .setAutoCancel(false)
+            .build()
         getSystemService(NotificationManager::class.java)
-            .createNotificationChannel(channel)
+            .notify(APPROVAL_NOTIFICATION_ID, notification)
+    }
+
+    private fun dismissApprovalNotification() {
+        getSystemService(NotificationManager::class.java)
+            .cancel(APPROVAL_NOTIFICATION_ID)
     }
 
     private fun getWifiIpAddress(): String? {
