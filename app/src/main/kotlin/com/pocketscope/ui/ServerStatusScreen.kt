@@ -16,7 +16,9 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
@@ -34,7 +36,12 @@ fun ServerStatusScreen(
     cameraPermissionGranted: Boolean,
     onRequestCameraPermission: () -> Unit,
     isDimmed: Boolean = false,
-    onToggleBrightness: () -> Unit = {}
+    onToggleBrightness: () -> Unit = {},
+    isIndiEnabled: Boolean = true,
+    isAlpacaEnabled: Boolean = false,
+    onToggleIndi: (Boolean) -> Unit = {},
+    onToggleAlpaca: (Boolean) -> Unit = {},
+    onNavigateToSettings: () -> Unit = {}
 ) {
     Scaffold { innerPadding ->
         Column(
@@ -187,6 +194,48 @@ fun ServerStatusScreen(
                         }
                     }
                 }
+            }
+
+            // Protocol Toggles (NET-06)
+            Spacer(modifier = Modifier.height(16.dp))
+            HorizontalDivider(color = MaterialTheme.colorScheme.outline)
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Text(
+                text = "Protocols",
+                style = MaterialTheme.typography.labelMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+            Spacer(modifier = Modifier.height(8.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "INDI (TCP 7624)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontFamily = FontFamily.Monospace
+                )
+                Switch(checked = isIndiEnabled, onCheckedChange = onToggleIndi)
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Alpaca (HTTP 11111)",
+                    style = MaterialTheme.typography.bodyMedium,
+                    fontFamily = FontFamily.Monospace
+                )
+                Switch(checked = isAlpacaEnabled, onCheckedChange = onToggleAlpaca)
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+            TextButton(onClick = onNavigateToSettings) {
+                Text("Manage Allowed IPs", fontFamily = FontFamily.Monospace)
             }
 
             Spacer(modifier = Modifier.weight(1f))
