@@ -16,6 +16,7 @@ import android.os.PowerManager
 import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
+import com.pocketscope.device.DeviceRegistry
 import com.pocketscope.indi.server.IndiServer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -37,6 +38,7 @@ class IndiServerService : Service() {
         private const val NOTIFICATION_ID = 1
     }
 
+    private var deviceRegistry: DeviceRegistry? = null
     private var server: IndiServer? = null
     private var serverJob: Job? = null
     private var clientCountJob: Job? = null
@@ -77,9 +79,12 @@ class IndiServerService : Service() {
         cameraThread = handlerThread
         val handler = Handler(handlerThread.looper)
 
+        val registry = DeviceRegistry(cameraManager, handler)
+        deviceRegistry = registry
+
         val indiServer = IndiServer(
-            cameraManager = cameraManager,
-            handler = handler,
+            registry = registry,
+            scope = serviceScope,
             onClientEvent = { event -> addEvent(event) },
             onCaptureComplete = { success ->
                 state.update { current ->
@@ -147,6 +152,7 @@ class IndiServerService : Service() {
         serverJob?.cancel()
         server?.stop()
         server = null
+        deviceRegistry = null
         cameraThread?.quitSafely()
         cameraThread = null
         state.value = ServerState()

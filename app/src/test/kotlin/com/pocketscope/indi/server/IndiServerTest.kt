@@ -5,23 +5,23 @@ import org.junit.Ignore
 import org.junit.Test
 
 /**
- * IndiServer now requires CameraManager and Handler (Android system services).
+ * IndiServer now requires DeviceRegistry (which requires CameraManager and Handler).
  * These integration tests require Android instrumentation and are deferred to
  * an androidTest source set. Kept here as documentation of intended behavior.
  */
 class IndiServerTest {
 
-    @Ignore("IndiServer now requires CameraManager/Handler -- needs Android instrumentation")
+    @Ignore("IndiServer now requires DeviceRegistry -- needs Android instrumentation")
     @Test
     fun `IndiServer initializes without crashing`() {
-        // Requires CameraManager from Android context
+        // Requires DeviceRegistry with CameraManager from Android context
         assertTrue(true)
     }
 
-    @Ignore("IndiServer now requires CameraManager/Handler -- needs Android instrumentation")
+    @Ignore("IndiServer now requires DeviceRegistry -- needs Android instrumentation")
     @Test
     fun `can connect to port 7624 locally and disconnect`() {
-        // Requires CameraManager from Android context + network
+        // Requires DeviceRegistry with CameraManager from Android context + network
         assertTrue(true)
     }
 }
