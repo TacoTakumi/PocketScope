@@ -104,11 +104,22 @@ class IndiServer(
     suspend fun start() = coroutineScope {
         selectorManager = SelectorManager(Dispatchers.IO)
 
-        serverSocket = aSocket(selectorManager!!)
-            .tcp()
-            .bind(host, port) {
-                reuseAddress = true
+        // Retry bind in case the previous socket is still in TIME_WAIT after a rapid toggle
+        var attempts = 0
+        while (true) {
+            try {
+                serverSocket = aSocket(selectorManager!!)
+                    .tcp()
+                    .bind(host, port) {
+                        reuseAddress = true
+                    }
+                break
+            } catch (e: java.net.BindException) {
+                if (++attempts >= 5) throw e
+                Log.w(TAG, "Port $port still in use, retrying in ${attempts * 200}ms (attempt $attempts/5)")
+                kotlinx.coroutines.delay(attempts * 200L)
             }
+        }
 
         Log.i(TAG, "INDI server listening on $host:$port with ${allDevices.size} devices (${registry.captureDevices.size} lenses)")
 

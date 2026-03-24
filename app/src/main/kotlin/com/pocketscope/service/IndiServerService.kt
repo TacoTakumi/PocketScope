@@ -126,7 +126,14 @@ class IndiServerService : Service() {
                 state.update { it.copy(isIndiEnabled = enabled) }
                 if (enabled) {
                     if (serverJob == null || serverJob?.isActive != true) {
-                        serverJob = serviceScope.launch { indiServer.start() }
+                        serverJob = serviceScope.launch {
+                            try {
+                                indiServer.start()
+                            } catch (e: java.net.BindException) {
+                                Log.e(TAG, "Failed to bind INDI server: ${e.message}")
+                                addEvent("INDI start failed: port in use")
+                            }
+                        }
                         addEvent("INDI protocol started")
                     }
                 } else {
@@ -136,6 +143,7 @@ class IndiServerService : Service() {
                     // serverJob propagates CancellationException through the
                     // coroutine tree, which interrupts any active capture() call.
                     serverJob?.cancel()
+                    serverJob?.join()
                     serverJob = null
                     indiServer.stop()
                     addEvent("INDI protocol stopped (active exposures aborted)")
