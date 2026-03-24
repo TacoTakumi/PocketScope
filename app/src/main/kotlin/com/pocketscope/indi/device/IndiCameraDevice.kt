@@ -42,7 +42,8 @@ class IndiCameraDevice(
     private val scope: CoroutineScope,
     private val onLensSwitch: ((LensInfo) -> Unit)? = null,
     private val blobCallback: (suspend (deviceName: String, fitsBytes: ByteArray) -> Unit)? = null,
-    private val onCaptureComplete: ((success: Boolean) -> Unit)? = null
+    private val onCaptureComplete: ((success: Boolean) -> Unit)? = null,
+    private val focusDioptersProvider: (() -> Float)? = null
 ) : IndiDevice {
 
     override val deviceName: String = "PocketScope ${captureDevice.lensInfo.lensType}"
@@ -279,8 +280,9 @@ class IndiCameraDevice(
             try {
                 val exposureNanos = (seconds * 1_000_000_000L).toLong()
                 val isoValue = gainProperty.value.toInt()
+                val focusDistance = focusDioptersProvider?.invoke() ?: 0.0f
 
-                val outcome = captureDevice.capture(exposureNanos, isoValue)
+                val outcome = captureDevice.capture(exposureNanos, isoValue, focusDistance)
                 when (outcome) {
                     is CaptureOutcome.Success -> {
                         val fitsBytes = withContext(Dispatchers.Default) {
@@ -312,7 +314,7 @@ class IndiCameraDevice(
                         // Retry once with 500ms delay (INDI-specific retry policy, per D-08)
                         Log.w(TAG, "[$deviceName] Capture failed, retrying", outcome.cause)
                         delay(500)
-                        val retryOutcome = captureDevice.capture(exposureNanos, isoValue)
+                        val retryOutcome = captureDevice.capture(exposureNanos, isoValue, focusDistance)
                         when (retryOutcome) {
                             is CaptureOutcome.Success -> {
                                 val fitsBytes = withContext(Dispatchers.Default) {

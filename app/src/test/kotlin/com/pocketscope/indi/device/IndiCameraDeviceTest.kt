@@ -64,8 +64,9 @@ class IndiCameraDeviceTest {
     private fun createDevice(
         captureDevice: FakeCaptureDevice = fakeDevice,
         scope: kotlinx.coroutines.CoroutineScope = kotlinx.coroutines.GlobalScope,
-        onLensSwitch: ((LensInfo) -> Unit)? = null
-    ): IndiCameraDevice = IndiCameraDevice(captureDevice, scope, onLensSwitch)
+        onLensSwitch: ((LensInfo) -> Unit)? = null,
+        focusDioptersProvider: (() -> Float)? = null
+    ): IndiCameraDevice = IndiCameraDevice(captureDevice, scope, onLensSwitch, focusDioptersProvider = focusDioptersProvider)
 
     // --- Device name tests ---
 
@@ -330,6 +331,37 @@ class IndiCameraDeviceTest {
             "State should be Busy or Alert",
             prop.state == PropertyState.Busy || prop.state == PropertyState.Alert
         )
+    }
+
+    // --- focusDioptersProvider tests ---
+
+    @Test
+    fun `handleExposure passes focusDioptersProvider value as focusDistance`() = runTest {
+        val device = createDevice(
+            scope = this,
+            focusDioptersProvider = { 5.5f }
+        )
+
+        device.handleNewProperty("CONNECTION", mapOf("CONNECT" to "On"))
+        advanceUntilIdle()
+
+        device.handleNewProperty("CCD_EXPOSURE", mapOf("CCD_EXPOSURE_VALUE" to "1.0"))
+        advanceUntilIdle()
+
+        assertEquals(5.5f, fakeDevice.lastFocusDistance)
+    }
+
+    @Test
+    fun `handleExposure defaults to zero focusDistance when no provider`() = runTest {
+        val device = createDevice(scope = this)
+
+        device.handleNewProperty("CONNECTION", mapOf("CONNECT" to "On"))
+        advanceUntilIdle()
+
+        device.handleNewProperty("CCD_EXPOSURE", mapOf("CCD_EXPOSURE_VALUE" to "1.0"))
+        advanceUntilIdle()
+
+        assertEquals(0.0f, fakeDevice.lastFocusDistance)
     }
 }
 

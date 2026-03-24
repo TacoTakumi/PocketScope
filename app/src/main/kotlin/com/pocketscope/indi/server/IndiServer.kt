@@ -86,7 +86,8 @@ class IndiServer(
                 focuserDevice.switchActiveLens(switchedLensInfo)
             },
             blobCallback = blobCallback,
-            onCaptureComplete = onCaptureComplete
+            onCaptureComplete = onCaptureComplete,
+            focusDioptersProvider = { focuserDevice.currentDiopters() }
         )
     }
     private val allDevices: List<IndiDevice> = cameraDevices + focuserDevice
