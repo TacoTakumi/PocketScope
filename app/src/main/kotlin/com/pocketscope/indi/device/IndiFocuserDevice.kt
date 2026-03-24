@@ -125,11 +125,8 @@ class IndiFocuserDevice(
     // --- Command handling ---
 
     override fun handleNewProperty(propertyName: String, elements: Map<String, String>) {
-        if (focuserDevice.activeLensInfo == null && propertyName != "CONNECTION") {
-            // Per D-16: reject commands when no active lens
-            findProperty(propertyName)?.state = PropertyState.Alert
-            return
-        }
+        // D-16 revised: Focuser works independently of CCD/lens state.
+        // Position tracking works without a lens; currentDiopters() returns 0f when no lens is set.
         when (propertyName) {
             "CONNECTION" -> handleConnection(elements)
             "ABS_FOCUS_POSITION" -> handleAbsPosition(elements)
@@ -153,15 +150,18 @@ class IndiFocuserDevice(
     }
 
     private fun handleAbsPosition(elements: Map<String, String>) {
-        val requested = elements["FOCUS_ABSOLUTE_POSITION"]?.toIntOrNull() ?: return
+        val requested = elements["FOCUS_ABSOLUTE_POSITION"]?.toDoubleOrNull()?.toInt() ?: return
+        absFocusPosition.state = PropertyState.Busy
         val clamped = focuserDevice.moveAbsolute(requested)
         absFocusPosition.value = clamped.toDouble()
         absFocusPosition.state = PropertyState.Ok
     }
 
     private fun handleRelPosition(elements: Map<String, String>) {
-        val steps = elements["FOCUS_RELATIVE_POSITION"]?.toIntOrNull() ?: return
+        val steps = elements["FOCUS_RELATIVE_POSITION"]?.toDoubleOrNull()?.toInt() ?: return
         val outward = focusDirection == "FOCUS_OUTWARD"
+        absFocusPosition.state = PropertyState.Busy
+        relFocusPosition.state = PropertyState.Busy
         val newPos = focuserDevice.moveRelative(steps, outward)
         absFocusPosition.value = newPos.toDouble()
         absFocusPosition.state = PropertyState.Ok
