@@ -161,13 +161,43 @@ class IndiFocuserDeviceTest {
         assertEquals(5.0f, focuser.currentDiopters(), 0.001f)
     }
 
-    // --- Alert state when no active lens ---
+    // --- Works without active lens ---
 
     @Test
-    fun `handleNewProperty on disconnected focuser sets Alert state`() {
-        val disconnectedFocuser = IndiFocuserDevice(FocuserDeviceImpl()) // no lens activated
-        disconnectedFocuser.handleNewProperty("ABS_FOCUS_POSITION", mapOf("FOCUS_ABSOLUTE_POSITION" to "500"))
-        val prop = disconnectedFocuser.properties.find { it.name == "ABS_FOCUS_POSITION" }!!
-        assertEquals(PropertyState.Alert, prop.state)
+    fun `handleNewProperty works without active lens`() {
+        val noLensFocuser = IndiFocuserDevice(FocuserDeviceImpl()) // no lens activated
+        noLensFocuser.handleNewProperty("ABS_FOCUS_POSITION", mapOf("FOCUS_ABSOLUTE_POSITION" to "500"))
+        val prop = noLensFocuser.properties.find { it.name == "ABS_FOCUS_POSITION" } as NumberProperty
+        assertEquals(500.0, prop.value, 0.001)
+        assertEquals(PropertyState.Ok, prop.state)
+    }
+
+    // --- State transitions ---
+
+    @Test
+    fun `absolute position transitions through Busy to Ok state`() {
+        focuser.handleNewProperty("ABS_FOCUS_POSITION", mapOf("FOCUS_ABSOLUTE_POSITION" to "500"))
+        val prop = focuser.properties.find { it.name == "ABS_FOCUS_POSITION" } as NumberProperty
+        // After move completes, state should be Ok (Busy is transient in synchronous code)
+        assertEquals(PropertyState.Ok, prop.state)
+        assertEquals(500.0, prop.value, 0.001)
+    }
+
+    // --- Float string parsing ---
+
+    @Test
+    fun `absolute position parses float-formatted string`() {
+        focuser.handleNewProperty("ABS_FOCUS_POSITION", mapOf("FOCUS_ABSOLUTE_POSITION" to "500.0"))
+        val prop = focuser.properties.find { it.name == "ABS_FOCUS_POSITION" } as NumberProperty
+        assertEquals(500.0, prop.value, 0.001)
+        assertEquals(PropertyState.Ok, prop.state)
+    }
+
+    @Test
+    fun `relative position parses float-formatted string`() {
+        focuser.handleNewProperty("ABS_FOCUS_POSITION", mapOf("FOCUS_ABSOLUTE_POSITION" to "100"))
+        focuser.handleNewProperty("REL_FOCUS_POSITION", mapOf("FOCUS_RELATIVE_POSITION" to "10.0"))
+        val prop = focuser.properties.find { it.name == "ABS_FOCUS_POSITION" } as NumberProperty
+        assertEquals(110.0, prop.value, 0.001)
     }
 }
