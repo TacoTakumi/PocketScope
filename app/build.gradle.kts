@@ -74,6 +74,8 @@ android {
 }
 
 dependencies {
+    testImplementation("org.mockito:mockito-core:4.11.0")
+    testImplementation("org.mockito.kotlin:mockito-kotlin:4.1.0")
     // Networking (TCP Server)
     implementation("io.ktor:ktor-network:3.4.1")
 

@@ -35,7 +35,7 @@ import kotlin.coroutines.resumeWithException
  *
  * @param handler Camera2 callback handler (must be on a background thread)
  */
-class RawCaptureSession(private val handler: Handler) {
+open class RawCaptureSession(private val handler: Handler) {
 
     companion object {
         private const val TAG = "RawCaptureSession"
@@ -87,7 +87,7 @@ class RawCaptureSession(private val handler: Handler) {
      * @return CaptureResult containing raw 16-bit pixel bytes
      * @throws RuntimeException if capture session configuration or capture fails
      */
-    suspend fun capture(
+    open suspend fun capture(
         cameraDevice: CameraDevice,
         lensInfo: LensInfo,
         exposureNanos: Long,
