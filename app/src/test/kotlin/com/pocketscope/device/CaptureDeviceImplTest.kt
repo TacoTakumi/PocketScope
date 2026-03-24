@@ -112,6 +112,22 @@ class CaptureDeviceImplTest {
     }
 
     @Test
+    fun `capture passes focusDistance through to RawCaptureSession`() = runTest {
+        val outcome = captureDevice.capture(1000L, 100, 5.0f)
+
+        assertTrue("Expected Success outcome", outcome is CaptureOutcome.Success)
+        assertEquals(5.0f, fakeRawCaptureSession.lastFocusDistance)
+    }
+
+    @Test
+    fun `capture defaults focusDistance to zero`() = runTest {
+        val outcome = captureDevice.capture(1000L, 100)
+
+        assertTrue("Expected Success outcome", outcome is CaptureOutcome.Success)
+        assertEquals(0.0f, fakeRawCaptureSession.lastFocusDistance)
+    }
+
+    @Test
     fun `capture returns Error when rawCaptureSession throws`() = runTest {
         fakeRawCaptureSession.shouldThrow = true
         
@@ -138,13 +154,16 @@ class CaptureDeviceImplTest {
         val fixedResult = CaptureResult(ByteArray(0), 100, 100)
         var shouldThrow = false
         var delayMs = 0L
+        var lastFocusDistance: Float = 0.0f
 
         override suspend fun capture(
             cameraDevice: CameraDevice,
             lensInfo: LensInfo,
             exposureNanos: Long,
-            isoValue: Int
+            isoValue: Int,
+            focusDistance: Float
         ): CaptureResult {
+            lastFocusDistance = focusDistance
             if (delayMs > 0) {
                 delay(delayMs)
             }

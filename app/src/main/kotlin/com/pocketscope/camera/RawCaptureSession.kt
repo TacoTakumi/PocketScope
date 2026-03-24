@@ -91,7 +91,8 @@ open class RawCaptureSession(private val handler: Handler) {
         cameraDevice: CameraDevice,
         lensInfo: LensInfo,
         exposureNanos: Long,
-        isoValue: Int
+        isoValue: Int,
+        focusDistance: Float = 0.0f
     ): CaptureResult {
         val imageReader = ImageReader.newInstance(
             lensInfo.pixelArraySize.width,
@@ -145,6 +146,7 @@ open class RawCaptureSession(private val handler: Handler) {
                         CaptureRequest.STATISTICS_LENS_SHADING_MAP_MODE,
                         CameraMetadata.STATISTICS_LENS_SHADING_MAP_MODE_OFF
                     )
+                    set(CaptureRequest.LENS_FOCUS_DISTANCE, focusDistance)
                 }.build()
 
                 // Capture and extract raw bytes

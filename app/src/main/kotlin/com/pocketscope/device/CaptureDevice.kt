@@ -12,5 +12,5 @@ sealed class CaptureOutcome {
 interface CaptureDevice {
     val lensInfo: LensInfo
     val isBusy: Boolean
-    suspend fun capture(exposureNanos: Long, isoValue: Int): CaptureOutcome
+    suspend fun capture(exposureNanos: Long, isoValue: Int, focusDistance: Float = 0.0f): CaptureOutcome
 }

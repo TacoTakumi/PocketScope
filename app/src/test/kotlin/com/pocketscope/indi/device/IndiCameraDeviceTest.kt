@@ -339,13 +339,15 @@ class IndiCameraDeviceTest {
 class FakeCaptureDevice(override val lensInfo: LensInfo) : CaptureDevice {
     var callCount = 0
     override var isBusy: Boolean = false
+    var lastFocusDistance: Float = 0.0f
 
     var outcome: CaptureOutcome = CaptureOutcome.Success(
         CaptureResult(ByteArray(10), 10, 1)
     )
 
-    override suspend fun capture(exposureNanos: Long, isoValue: Int): CaptureOutcome {
+    override suspend fun capture(exposureNanos: Long, isoValue: Int, focusDistance: Float): CaptureOutcome {
         callCount++
+        lastFocusDistance = focusDistance
         return outcome
     }
 }

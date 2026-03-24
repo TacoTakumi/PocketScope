@@ -17,14 +17,14 @@ class CaptureDeviceImpl(
 
     override val isBusy: Boolean get() = captureMutex.isLocked
 
-    override suspend fun capture(exposureNanos: Long, isoValue: Int): CaptureOutcome {
+    override suspend fun capture(exposureNanos: Long, isoValue: Int, focusDistance: Float): CaptureOutcome {
         if (!captureMutex.tryLock()) return CaptureOutcome.Busy
         return try {
             val cameraDevice = sessionManager.switchToLens(
                 lensInfo.physicalCameraId, lensInfo.logicalCameraId
             ) ?: return CaptureOutcome.Error(IllegalStateException("No camera device available"))
-            
-            val result = rawCaptureSession.capture(cameraDevice, lensInfo, exposureNanos, isoValue)
+
+            val result = rawCaptureSession.capture(cameraDevice, lensInfo, exposureNanos, isoValue, focusDistance)
             CaptureOutcome.Success(result)
         } catch (e: Exception) {
             CaptureOutcome.Error(e)
