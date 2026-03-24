@@ -15,12 +15,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.navigation.compose.rememberNavController
+import com.pocketscope.network.ApprovalManager
 import com.pocketscope.service.IndiServerService
-import com.pocketscope.ui.ServerStatusScreen
+import com.pocketscope.settings.SettingsRepository
+import com.pocketscope.ui.PocketScopeNavHost
 import com.pocketscope.ui.theme.PocketScopeTheme
+import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -57,8 +62,33 @@ class MainActivity : ComponentActivity() {
                     cameraPermissionGranted = granted
                 }
 
-                ServerStatusScreen(
-                    state = serverState,
+                // Navigation and settings (Phase 7 - NET-02, NET-05, NET-06)
+                val navController = rememberNavController()
+                val settingsRepo = remember { SettingsRepository(this@MainActivity) }
+                val whitelistedIps by settingsRepo.whitelistedIps
+                    .collectAsStateWithLifecycle(initialValue = emptySet())
+                val coroutineScope = rememberCoroutineScope()
+
+                // Request POST_NOTIFICATIONS permission for Android 13+ (foreground service)
+                if (android.os.Build.VERSION.SDK_INT >= 33) {
+                    val notifPermLauncher = rememberLauncherForActivityResult(
+                        contract = ActivityResultContracts.RequestPermission()
+                    ) { /* notification channel handles graceful degradation */ }
+                    LaunchedEffect(Unit) {
+                        if (ContextCompat.checkSelfPermission(
+                                this@MainActivity,
+                                Manifest.permission.POST_NOTIFICATIONS
+                            ) != PackageManager.PERMISSION_GRANTED
+                        ) {
+                            notifPermLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                        }
+                    }
+                }
+
+                PocketScopeNavHost(
+                    navController = navController,
+                    serverState = serverState,
+                    whitelistedIps = whitelistedIps,
                     onStartServer = { startIndiService() },
                     onStopServer = { stopIndiService() },
                     cameraPermissionGranted = cameraPermissionGranted,
@@ -66,7 +96,21 @@ class MainActivity : ComponentActivity() {
                         permissionLauncher.launch(Manifest.permission.CAMERA)
                     },
                     isDimmed = isDimmed,
-                    onToggleBrightness = { isDimmed = !isDimmed }
+                    onToggleBrightness = { isDimmed = !isDimmed },
+                    onToggleIndi = { enabled ->
+                        coroutineScope.launch { settingsRepo.setIndiEnabled(enabled) }
+                    },
+                    onToggleAlpaca = { enabled ->
+                        coroutineScope.launch { settingsRepo.setAlpacaEnabled(enabled) }
+                    },
+                    onApprovalResponse = { ip, approved, alwaysAllow ->
+                        coroutineScope.launch {
+                            ApprovalManager.instance?.respondToApproval(ip, approved, alwaysAllow)
+                        }
+                    },
+                    onRemoveWhitelistedIp = { ip ->
+                        coroutineScope.launch { settingsRepo.removeWhitelistedIp(ip) }
+                    }
                 )
             }
         }
