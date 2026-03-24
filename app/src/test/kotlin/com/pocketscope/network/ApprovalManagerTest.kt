@@ -4,9 +4,12 @@ import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import com.pocketscope.settings.SettingsRepository
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.advanceTimeBy
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -29,7 +32,7 @@ class ApprovalManagerTest {
     }
 
     @Test
-    fun `whitelisted IP returns true immediately without pending request`() = runTest {
+    fun `whitelisted IP returns true immediately without pending request`() = runBlocking {
         settingsRepo.addWhitelistedIp("192.168.1.10")
         val result = approvalManager.awaitApproval("192.168.1.10")
         assertTrue(result)
@@ -37,34 +40,35 @@ class ApprovalManagerTest {
     }
 
     @Test
-    fun `non-whitelisted IP emits ApprovalRequest on pendingApproval`() = runTest {
+    fun `non-whitelisted IP emits ApprovalRequest on pendingApproval`() = runBlocking {
         val deferred = async { approvalManager.awaitApproval("192.168.1.99") }
 
-        // Give coroutine time to emit request
-        testScheduler.advanceUntilIdle()
+        // Wait for the coroutine to reach suspension on the deferred
+        waitForPending()
 
         val pending = approvalManager.pendingApproval.value
         assertNotNull(pending)
         assertEquals("192.168.1.99", pending!!.ip)
 
-        // Clean up: respond so the coroutine completes
         approvalManager.respondToApproval("192.168.1.99", approved = false)
-        deferred.await()
+        assertFalse(deferred.await())
     }
 
     @Test
-    fun `respondToApproval with approved true resolves with true`() = runTest {
+    fun `respondToApproval with approved true resolves with true`() = runBlocking {
         val deferred = async { approvalManager.awaitApproval("192.168.1.50") }
-        testScheduler.advanceUntilIdle()
+
+        waitForPending()
 
         approvalManager.respondToApproval("192.168.1.50", approved = true)
         assertTrue(deferred.await())
     }
 
     @Test
-    fun `respondToApproval with approved true and alwaysAllow persists to whitelist`() = runTest {
+    fun `respondToApproval with approved true and alwaysAllow persists to whitelist`() = runBlocking {
         val deferred = async { approvalManager.awaitApproval("192.168.1.60") }
-        testScheduler.advanceUntilIdle()
+
+        waitForPending()
 
         approvalManager.respondToApproval("192.168.1.60", approved = true, alwaysAllow = true)
         assertTrue(deferred.await())
@@ -74,9 +78,10 @@ class ApprovalManagerTest {
     }
 
     @Test
-    fun `respondToApproval with approved false resolves with false`() = runTest {
+    fun `respondToApproval with approved false resolves with false`() = runBlocking {
         val deferred = async { approvalManager.awaitApproval("192.168.1.70") }
-        testScheduler.advanceUntilIdle()
+
+        waitForPending()
 
         approvalManager.respondToApproval("192.168.1.70", approved = false)
         assertFalse(deferred.await())
@@ -85,6 +90,9 @@ class ApprovalManagerTest {
     @Test
     fun `awaitApproval times out after 60 seconds and returns false`() = runTest {
         val deferred = async { approvalManager.awaitApproval("192.168.1.80") }
+        testScheduler.advanceUntilIdle()
+        // DataStore IO needs real time
+        Thread.sleep(200)
         testScheduler.advanceUntilIdle()
 
         // Advance past 60 second timeout
@@ -95,9 +103,10 @@ class ApprovalManagerTest {
     }
 
     @Test
-    fun `duplicate awaitApproval for same IP returns false immediately`() = runTest {
-        val first = async { approvalManager.awaitApproval("192.168.1.90") }
-        testScheduler.advanceUntilIdle()
+    fun `duplicate awaitApproval for same IP returns false immediately`() = runBlocking {
+        val deferred = async { approvalManager.awaitApproval("192.168.1.90") }
+
+        waitForPending()
 
         // Second call for same IP while first is pending
         val second = approvalManager.awaitApproval("192.168.1.90")
@@ -105,20 +114,32 @@ class ApprovalManagerTest {
 
         // Clean up first
         approvalManager.respondToApproval("192.168.1.90", approved = false)
-        first.await()
+        assertFalse(deferred.await())
     }
 
     @Test
-    fun `after approval resolves pendingApproval emits null`() = runTest {
+    fun `after approval resolves pendingApproval emits null`() = runBlocking {
         val deferred = async { approvalManager.awaitApproval("192.168.1.100") }
-        testScheduler.advanceUntilIdle()
+
+        waitForPending()
 
         assertNotNull(approvalManager.pendingApproval.value)
 
         approvalManager.respondToApproval("192.168.1.100", approved = true)
         deferred.await()
-        testScheduler.advanceUntilIdle()
 
         assertNull(approvalManager.pendingApproval.value)
+    }
+
+    /**
+     * Waits for the approval manager to have a pending request.
+     * DataStore reads happen on Dispatchers.IO, so we need real time to elapse.
+     */
+    private suspend fun waitForPending() {
+        withTimeout(5_000) {
+            while (approvalManager.pendingApproval.value == null) {
+                delay(10)
+            }
+        }
     }
 }
