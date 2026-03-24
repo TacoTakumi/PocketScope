@@ -3,6 +3,8 @@ package com.pocketscope.indi.server
 import android.util.Log
 import com.pocketscope.device.DeviceRegistry
 import com.pocketscope.indi.device.IndiCameraDevice
+import com.pocketscope.network.ApprovalManager
+import com.pocketscope.network.NetworkFilter
 import com.pocketscope.indi.device.IndiDevice
 import com.pocketscope.indi.device.IndiFocuserDevice
 import io.ktor.network.selector.SelectorManager
@@ -46,7 +48,8 @@ class IndiServer(
     private val port: Int = DEFAULT_PORT,
     private val host: String = "0.0.0.0",
     private val onClientEvent: ((String) -> Unit)? = null,
-    private val onCaptureComplete: ((success: Boolean) -> Unit)? = null
+    private val onCaptureComplete: ((success: Boolean) -> Unit)? = null,
+    private val approvalManager: ApprovalManager? = null
 ) {
     companion object {
         private const val TAG = "IndiServer"
@@ -129,7 +132,30 @@ class IndiServer(
      * from all registered devices.
      */
     private suspend fun handleClient(socket: Socket) {
-        val clientIp = socket.remoteAddress.toString()
+        val rawIp = socket.remoteAddress.toString()
+        val cleanIp = NetworkFilter.extractIp(rawIp)
+
+        // Step 1: Reject non-private IPs immediately (NET-01)
+        if (!NetworkFilter.isPrivateIp(cleanIp)) {
+            Log.w(TAG, "Rejected non-private IP: $cleanIp")
+            onClientEvent?.invoke("Rejected non-private IP: $cleanIp")
+            try { socket.close() } catch (_: Exception) {}
+            return
+        }
+
+        // Step 2: Await user approval if ApprovalManager is provided (NET-02, NET-03)
+        if (approvalManager != null) {
+            val approved = approvalManager.awaitApproval(cleanIp)
+            if (!approved) {
+                Log.i(TAG, "Connection denied by user: $cleanIp")
+                onClientEvent?.invoke("Connection denied: $cleanIp")
+                try { socket.close() } catch (_: Exception) {}
+                return
+            }
+        }
+
+        // Step 3: Existing connection handling
+        val clientIp = rawIp
         try {
             enableKeepAlive(socket)
             onClientEvent?.invoke("Client connected ($clientIp)")
@@ -194,6 +220,8 @@ class IndiServer(
         selectorManager?.close()
         selectorManager = null
         activeSessions.clear()
-        registry.closeAll()
+        // NOTE: Do NOT call registry.closeAll() here.
+        // DeviceRegistry lifecycle is managed by IndiServerService,
+        // not by individual protocol servers.
     }
 }

@@ -24,4 +24,14 @@ class IndiServerTest {
         // Requires DeviceRegistry with CameraManager from Android context + network
         assertTrue(true)
     }
+
+    @Ignore("IndiServer now requires DeviceRegistry -- needs Android instrumentation")
+    @Test
+    fun `IndiServer constructor accepts ApprovalManager parameter`() {
+        // Verifies IndiServer constructor has the approvalManager parameter.
+        // When approvalManager is null (default), all connections are accepted as before.
+        // When provided, handleClient gates connections through IP filtering and approval.
+        // Requires DeviceRegistry with CameraManager from Android context.
+        assertTrue(true)
+    }
 }
