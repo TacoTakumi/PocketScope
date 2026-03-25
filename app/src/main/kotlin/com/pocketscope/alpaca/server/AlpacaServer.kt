@@ -103,7 +103,7 @@ class AlpacaServer(
         if (queryMatch != null) return queryMatch
 
         // For PUT/POST, also check form body parameters
-        if (request.httpMethod == HttpMethod.Put || request.httpMethod == HttpMethod.Post) {
+        if (request.local.method == HttpMethod.Put || request.local.method == HttpMethod.Post) {
             val formParams = receiveParameters()
             val formMatch = formParams.entries()
                 .firstOrNull { it.key.equals(name, ignoreCase = true) }
@@ -127,6 +127,7 @@ class AlpacaServer(
      * listener runs on port 32227 in a separate coroutine.
      */
     fun start() {
+        val versionName = BuildConfig.VERSION_NAME
         engine = embeddedServer(CIO, port = port, host = host) {
             install(ContentNegotiation) {
                 json(Json { encodeDefaults = true })
@@ -168,7 +169,7 @@ class AlpacaServer(
                         value = ServerDescription(
                             serverName = "PocketScope",
                             manufacturer = "PocketScope",
-                            manufacturerVersion = BuildConfig.VERSION_NAME,
+                            manufacturerVersion = versionName,
                             location = "Android Device"
                         ),
                         clientTransactionID = clientTxId,
@@ -350,7 +351,7 @@ class AlpacaServer(
         }
         try {
             val buffer = ByteArray(64)
-            while (kotlinx.coroutines.isActive) {
+            while (kotlinx.coroutines.currentCoroutineContext()[kotlinx.coroutines.Job]?.isActive != false) {
                 val packet = DatagramPacket(buffer, buffer.size)
                 socket.receive(packet)  // blocking, OK on IO dispatcher
                 val message = String(packet.data, 0, packet.length).trim()
