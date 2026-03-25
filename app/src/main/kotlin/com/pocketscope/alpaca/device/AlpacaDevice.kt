@@ -18,7 +18,6 @@ abstract class AlpacaDevice(
      * is always physically available -- there is no separate connect step.
      */
     var isConnected: Boolean = true
-        protected set
 
     /** Human-readable description of the device. */
     abstract val description: String
