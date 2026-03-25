@@ -310,8 +310,38 @@ class IndiCameraDeviceTest {
     fun `bayerPattern is computed from lensInfo cfaArrangement`() = runTest {
         // Default cfaArrangement is 0 (RGGB) in testLensInfo
         val device = createDevice(scope = this)
-        // 8 properties: CONNECTION, DRIVER_INFO, CCD_EXPOSURE, CCD_GAIN, CCD_INFO, CCD_FRAME, CCD_TEMPERATURE, CCD1
-        assertEquals(8, device.properties.size)
+        // 10 properties: CONNECTION, DRIVER_INFO, CCD_EXPOSURE, CCD_GAIN, CCD_INFO, TELESCOPE_INFO, CCD_FRAME, CCD_TEMPERATURE, CCD1, UPLOAD_MODE
+        assertEquals(10, device.properties.size)
+    }
+
+    // --- UPLOAD_MODE tests ---
+
+    @Test
+    fun `exposes UPLOAD_MODE property`() = runTest {
+        val device = createDevice(scope = this)
+        val prop = device.properties.find { it.name == "UPLOAD_MODE" }
+        assertNotNull("UPLOAD_MODE property must exist", prop)
+        assertTrue("UPLOAD_MODE must be a SwitchProperty", prop is SwitchProperty)
+    }
+
+    @Test
+    fun `UPLOAD_MODE defaults to UPLOAD_CLIENT on`() = runTest {
+        val device = createDevice(scope = this)
+        val prop = device.properties.find { it.name == "UPLOAD_MODE" } as SwitchProperty
+        assertEquals(3, prop.options.size)
+        assertTrue("UPLOAD_CLIENT must be On", prop.options["UPLOAD_CLIENT"]!!)
+        assertFalse("UPLOAD_LOCAL must be Off", prop.options["UPLOAD_LOCAL"]!!)
+        assertFalse("UPLOAD_BOTH must be Off", prop.options["UPLOAD_BOTH"]!!)
+    }
+
+    @Test
+    fun `handleNewProperty UPLOAD_MODE always keeps UPLOAD_CLIENT active`() = runTest {
+        val device = createDevice(scope = this)
+        device.handleNewProperty("UPLOAD_MODE", mapOf("UPLOAD_LOCAL" to "On", "UPLOAD_CLIENT" to "Off", "UPLOAD_BOTH" to "Off"))
+        val prop = device.properties.find { it.name == "UPLOAD_MODE" } as SwitchProperty
+        assertTrue("UPLOAD_CLIENT must remain On", prop.options["UPLOAD_CLIENT"]!!)
+        assertFalse("UPLOAD_LOCAL must be Off", prop.options["UPLOAD_LOCAL"]!!)
+        assertEquals(PropertyState.Ok, prop.state)
     }
 
     @Test
