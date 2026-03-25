@@ -17,6 +17,7 @@ data class ServerState(
     // Phase 7: Protocol toggles
     val isIndiEnabled: Boolean = true,
     val isAlpacaEnabled: Boolean = false,
+    val alpacaPort: Int = 11111,
     // Phase 7: Pending connection approval
     val pendingApprovalIp: String? = null
 )

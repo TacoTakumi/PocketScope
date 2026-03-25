@@ -17,6 +17,7 @@ import android.os.SystemClock
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.pocketscope.device.DeviceRegistry
+import com.pocketscope.alpaca.server.AlpacaServer
 import com.pocketscope.indi.server.IndiServer
 import com.pocketscope.network.ApprovalManager
 import com.pocketscope.settings.SettingsRepository
@@ -46,6 +47,8 @@ class IndiServerService : Service() {
     private var deviceRegistry: DeviceRegistry? = null
     private var server: IndiServer? = null
     private var serverJob: Job? = null
+    private var alpacaServer: AlpacaServer? = null
+    private var alpacaJob: Job? = null
     private var clientCountJob: Job? = null
     private var cameraThread: HandlerThread? = null
     private val serviceScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
@@ -111,6 +114,14 @@ class IndiServerService : Service() {
         )
         server = indiServer
 
+        val alpaca = AlpacaServer(
+            registry = registry,
+            scope = serviceScope,
+            onEvent = { event -> addEvent(event) },
+            approvalManager = approval
+        )
+        alpacaServer = alpaca
+
         val ip = getWifiIpAddress() ?: "unknown"
         state.value = ServerState(
             isRunning = true,
@@ -163,10 +174,29 @@ class IndiServerService : Service() {
             }
         }
 
-        // Observe Alpaca toggle for ServerState (protocol not built yet, just state tracking)
+        // Observe Alpaca toggle and dynamically start/stop the Alpaca protocol server
         serviceScope.launch {
             settings.isAlpacaEnabled.collectLatest { enabled ->
                 state.update { it.copy(isAlpacaEnabled = enabled) }
+                if (enabled) {
+                    if (alpacaJob == null || alpacaJob?.isActive != true) {
+                        alpacaJob = serviceScope.launch {
+                            try {
+                                alpaca.start()
+                            } catch (e: java.net.BindException) {
+                                Log.e(TAG, "Failed to bind Alpaca server: ${e.message}")
+                                addEvent("Alpaca start failed: port in use")
+                            }
+                        }
+                        addEvent("Alpaca protocol started")
+                    }
+                } else {
+                    alpacaJob?.cancel()
+                    alpacaJob?.join()
+                    alpacaJob = null
+                    alpaca.stop()
+                    addEvent("Alpaca protocol stopped")
+                }
             }
         }
 
@@ -211,6 +241,9 @@ class IndiServerService : Service() {
         wakeLock = null
 
         clientCountJob?.cancel()
+        alpacaJob?.cancel()
+        alpacaServer?.stop()
+        alpacaServer = null
         serverJob?.cancel()
         server?.stop()
         server = null
