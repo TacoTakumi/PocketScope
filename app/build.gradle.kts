@@ -2,6 +2,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
 }
 
 import java.util.Properties
@@ -32,7 +33,7 @@ android {
         minSdk = 29
         targetSdk = 36
         versionCode = 2
-        versionName = "1.0.1"
+        versionName = "1.1.0-rc2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -86,6 +87,12 @@ dependencies {
 
     // Networking (TCP Server)
     implementation("io.ktor:ktor-network:3.4.1")
+
+    // Alpaca HTTP Server (ASCOM Alpaca protocol)
+    implementation("io.ktor:ktor-server-cio:3.4.1")
+    implementation("io.ktor:ktor-server-content-negotiation:3.4.1")
+    implementation("io.ktor:ktor-serialization-kotlinx-json:3.4.1")
+    implementation("org.jetbrains.kotlinx:kotlinx-serialization-json:1.8.1")
 
     // Async / Concurrency
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")
