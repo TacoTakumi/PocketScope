@@ -38,7 +38,8 @@ data class LensInfo(
     val minFocusDistance: Float?,       // diopters (0.0 = infinity only, null = fixed focus)
     val maxDigitalZoom: Float?,        // from SCALER_AVAILABLE_MAX_DIGITAL_ZOOM
     val activeArraySize: Rect,          // from SENSOR_INFO_ACTIVE_ARRAY_SIZE
-    val cfaArrangement: Int = 0          // Camera2 SENSOR_INFO_COLOR_FILTER_ARRANGEMENT constant (0=RGGB)
+    val cfaArrangement: Int = 0,          // Camera2 SENSOR_INFO_COLOR_FILTER_ARRANGEMENT constant (0=RGGB)
+    val aperture: Float? = null           // f-number from LENS_INFO_AVAILABLE_APERTURES (null if unavailable)
 ) {
     /** Human-readable lens type based on focal length relative to a reference set. */
     val lensType: String get() = when {
@@ -46,4 +47,7 @@ data class LensInfo(
         focalLength < 8.0f -> "Main"
         else -> "Tele"
     }
+
+    /** Aperture diameter in mm = focalLength / fNumber. Null if aperture unknown. */
+    val apertureDiameterMm: Float? get() = aperture?.let { focalLength / it }
 }

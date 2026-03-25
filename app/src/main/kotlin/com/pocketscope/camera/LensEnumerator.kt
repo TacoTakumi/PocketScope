@@ -67,6 +67,7 @@ object LensEnumerator {
             ?: Rect()
 
         val cfa = chars.get(CameraCharacteristics.SENSOR_INFO_COLOR_FILTER_ARRANGEMENT) ?: 0
+        val apertures = chars.get(CameraCharacteristics.LENS_INFO_AVAILABLE_APERTURES)
 
         return LensInfo(
             physicalCameraId = cameraId,
@@ -83,7 +84,8 @@ object LensEnumerator {
             minFocusDistance = chars.get(CameraCharacteristics.LENS_INFO_MINIMUM_FOCUS_DISTANCE),
             maxDigitalZoom = chars.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM),
             activeArraySize = activeArray,
-            cfaArrangement = cfa
+            cfaArrangement = cfa,
+            aperture = apertures?.firstOrNull()
         )
     }
 }
