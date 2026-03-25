@@ -165,6 +165,25 @@ class IndiCameraDevice(
         )
         _properties.add(ccdInfoProperty)
 
+        // TELESCOPE_INFO: optics metadata for FOV calculation (KStars auto-reads this)
+        val focalLengthMm = captureDevice.lensInfo.focalLength.toDouble()
+        val apertureDiameterMm = captureDevice.lensInfo.apertureDiameterMm?.toDouble() ?: 0.0
+
+        _properties.add(NumberVectorProperty(
+            device = deviceName,
+            name = "TELESCOPE_INFO",
+            label = "Telescope Info",
+            group = "Options",
+            initialState = PropertyState.Idle,
+            perm = "ro",
+            elements = mutableListOf(
+                NumberElement("TELESCOPE_FOCAL_LENGTH", "Focal Length (mm)", "%g",
+                    focalLengthMm, 0.0, 10000.0, 0.0),
+                NumberElement("TELESCOPE_APERTURE", "Aperture (mm)", "%g",
+                    apertureDiameterMm, 0.0, 3000.0, 0.0)
+            )
+        ))
+
         // CCD_FRAME: subframe selection
         ccdFrameProperty = NumberVectorProperty(
             device = deviceName,

@@ -410,6 +410,46 @@ def focus_info(client, device_name, timeout=10):
     log.info(f"{'='*60}")
 
 
+def lens_info(client, device_names, timeout=10):
+    """Print TELESCOPE_INFO (focal length, aperture diameter) for all CCD devices."""
+    ccd_devices = [n for n in device_names
+                   if n.startswith("PocketScope") and "Focuser" not in n]
+
+    if not ccd_devices:
+        log.warning("No PocketScope CCD devices found for lens info")
+        return
+
+    log.info(f"\n{'='*60}")
+    log.info("TELESCOPE_INFO (optics metadata)")
+    log.info(f"{'='*60}")
+
+    for dev_name in ccd_devices:
+        if not wait_for_property(client, dev_name, "TELESCOPE_INFO", timeout):
+            log.warning(f"  {dev_name}: TELESCOPE_INFO not available")
+            continue
+
+        device = client.getDevice(dev_name)
+        if not device:
+            continue
+
+        prop = device.getNumber("TELESCOPE_INFO")
+        if not prop:
+            log.warning(f"  {dev_name}: could not get TELESCOPE_INFO property")
+            continue
+
+        focal_length = 0.0
+        aperture_diameter = 0.0
+        for w in prop:
+            if w.getName() == "TELESCOPE_FOCAL_LENGTH":
+                focal_length = w.getValue()
+            elif w.getName() == "TELESCOPE_APERTURE":
+                aperture_diameter = w.getValue()
+
+        log.info(f"  {dev_name}: focal_length={focal_length}mm aperture_diameter={aperture_diameter}mm")
+
+    log.info(f"{'='*60}")
+
+
 def main():
     parser = argparse.ArgumentParser(description="PocketScope INDI test client")
     parser.add_argument("--host", default="localhost",
@@ -432,14 +472,16 @@ def main():
                         help="Move focus relative (positive steps in current direction)")
     parser.add_argument("--focus-info", action="store_true",
                         help="Print focuser properties (position, range, direction)")
+    parser.add_argument("--lens-info", action="store_true",
+                        help="Print TELESCOPE_INFO (focal length, aperture) for all CCD devices")
     parser.add_argument("--wait", type=float, default=3,
                         help="Seconds to wait for device discovery (default: 3)")
     args = parser.parse_args()
 
-    # Focus commands imply --connect
+    # Focus and lens-info commands imply --connect
     has_focus_action = (args.focus_abs is not None or args.focus_rel is not None
                         or args.focus_info)
-    if has_focus_action:
+    if has_focus_action or args.lens_info:
         args.connect = True
 
     client = PocketScopeClient()
@@ -478,6 +520,10 @@ def main():
         if not capture_image(client, target, args.capture, args.output):
             sys.exit(1)
 
+    # Lens info: print TELESCOPE_INFO for all CCD devices
+    if args.lens_info:
+        lens_info(client, device_names)
+
     # Focus commands target the focuser device
     if has_focus_action:
         focus_target = args.focus_device
@@ -501,7 +547,7 @@ def main():
                 sys.exit(1)
 
     # If no action requested, just list and exit
-    if not args.connect and args.capture is None and not has_focus_action:
+    if not args.connect and args.capture is None and not has_focus_action and not args.lens_info:
         log.info("Done. Use --connect and/or --capture to interact with devices.")
 
     # Keep alive briefly to catch any trailing messages
