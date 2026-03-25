@@ -75,6 +75,7 @@ class IndiCameraDevice(
     private val ccdFrameProperty: NumberVectorProperty
     private val temperatureProperty: NumberProperty
     private val blobProperty: BlobProperty
+    private val uploadModeProperty: SwitchProperty
 
     init {
         // CONNECTION switch
@@ -234,6 +235,23 @@ class IndiCameraDevice(
             perm = "ro"
         )
         _properties.add(blobProperty)
+
+        // UPLOAD_MODE: KStars compliance — always UPLOAD_CLIENT since PocketScope only streams to client
+        uploadModeProperty = SwitchProperty(
+            device = deviceName,
+            name = "UPLOAD_MODE",
+            label = "Upload",
+            group = "Options",
+            initialState = PropertyState.Idle,
+            rule = "OneOfMany",
+            options = mutableMapOf(
+                "UPLOAD_CLIENT" to true,
+                "UPLOAD_LOCAL" to false,
+                "UPLOAD_BOTH" to false
+            ),
+            perm = "rw"
+        )
+        _properties.add(uploadModeProperty)
     }
 
     companion object {
@@ -247,6 +265,7 @@ class IndiCameraDevice(
             "CCD_EXPOSURE" -> handleExposure(elements)
             "CCD_GAIN" -> handleGain(elements)
             "CCD_FRAME" -> handleFrame(elements)
+            "UPLOAD_MODE" -> handleUploadMode(elements)
             else -> { /* unknown property, ignore */ }
         }
     }
@@ -404,5 +423,22 @@ class IndiCameraDevice(
             ccdFrameProperty.setElementValue(elemName, value)
         }
         ccdFrameProperty.state = PropertyState.Ok
+    }
+
+    /**
+     * Handles UPLOAD_MODE switch commands.
+     *
+     * PocketScope only supports client upload (streaming FITS over TCP).
+     * Accepts the command gracefully but always forces UPLOAD_CLIENT=On
+     * regardless of what the client requested.
+     */
+    private fun handleUploadMode(elements: Map<String, String>) {
+        Log.d(TAG, "[$deviceName] UPLOAD_MODE requested: $elements — forcing UPLOAD_CLIENT")
+        // Reset all options, then force UPLOAD_CLIENT on
+        uploadModeProperty.options.keys.forEach { key ->
+            uploadModeProperty.options[key] = false
+        }
+        uploadModeProperty.options["UPLOAD_CLIENT"] = true
+        uploadModeProperty.state = PropertyState.Ok
     }
 }
