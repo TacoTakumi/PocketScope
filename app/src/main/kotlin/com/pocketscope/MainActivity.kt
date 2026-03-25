@@ -67,6 +67,10 @@ class MainActivity : ComponentActivity() {
                 val settingsRepo = remember { SettingsRepository(this@MainActivity) }
                 val whitelistedIps by settingsRepo.whitelistedIps
                     .collectAsStateWithLifecycle(initialValue = emptySet())
+                val isIndiEnabled by settingsRepo.isIndiEnabled
+                    .collectAsStateWithLifecycle(initialValue = true)
+                val isAlpacaEnabled by settingsRepo.isAlpacaEnabled
+                    .collectAsStateWithLifecycle(initialValue = false)
                 val coroutineScope = rememberCoroutineScope()
 
                 // Request POST_NOTIFICATIONS permission for Android 13+ (foreground service)
@@ -97,6 +101,8 @@ class MainActivity : ComponentActivity() {
                     },
                     isDimmed = isDimmed,
                     onToggleBrightness = { isDimmed = !isDimmed },
+                    isIndiEnabled = isIndiEnabled,
+                    isAlpacaEnabled = isAlpacaEnabled,
                     onToggleIndi = { enabled ->
                         coroutineScope.launch { settingsRepo.setIndiEnabled(enabled) }
                     },
