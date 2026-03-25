@@ -146,7 +146,9 @@ open class RawCaptureSession(private val handler: Handler) {
                         CaptureRequest.STATISTICS_LENS_SHADING_MAP_MODE,
                         CameraMetadata.STATISTICS_LENS_SHADING_MAP_MODE_OFF
                     )
+                    set(CaptureRequest.CONTROL_AF_MODE, CameraMetadata.CONTROL_AF_MODE_OFF)
                     set(CaptureRequest.LENS_FOCUS_DISTANCE, focusDistance)
+                    Log.d(TAG, "Focus distance: $focusDistance diopters (AF_MODE=OFF)")
                 }.build()
 
                 // Capture and extract raw bytes
