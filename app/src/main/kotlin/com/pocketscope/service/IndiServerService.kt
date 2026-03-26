@@ -28,6 +28,7 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.collectLatest
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -133,7 +134,7 @@ class IndiServerService : Service() {
 
         // Observe INDI toggle and dynamically start/stop the protocol server
         serviceScope.launch {
-            settings.isIndiEnabled.collectLatest { enabled ->
+            settings.isIndiEnabled.distinctUntilChanged().collectLatest { enabled ->
                 state.update { it.copy(isIndiEnabled = enabled) }
                 if (enabled) {
                     if (serverJob == null || serverJob?.isActive != true) {
@@ -176,17 +177,16 @@ class IndiServerService : Service() {
 
         // Observe Alpaca toggle and dynamically start/stop the Alpaca protocol server
         serviceScope.launch {
-            settings.isAlpacaEnabled.collectLatest { enabled ->
+            settings.isAlpacaEnabled.distinctUntilChanged().collectLatest { enabled ->
                 state.update { it.copy(isAlpacaEnabled = enabled) }
                 if (enabled) {
                     if (alpacaJob == null || alpacaJob?.isActive != true) {
-                        alpacaJob = serviceScope.launch {
-                            try {
-                                alpaca.start()
-                            } catch (e: java.net.BindException) {
-                                Log.e(TAG, "Failed to bind Alpaca server: ${e.message}")
-                                addEvent("Alpaca start failed: port in use")
-                            }
+                        val handler = kotlinx.coroutines.CoroutineExceptionHandler { _, e ->
+                            Log.e(TAG, "Alpaca server error: ${e.message}")
+                            addEvent("Alpaca error: ${e.message}")
+                        }
+                        alpacaJob = serviceScope.launch(handler) {
+                            alpaca.start()
                         }
                         addEvent("Alpaca protocol started")
                     }

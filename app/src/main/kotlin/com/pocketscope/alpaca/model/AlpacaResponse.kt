@@ -22,6 +22,15 @@ data class BoolResponse(
 )
 
 @Serializable
+data class DoubleResponse(
+    @SerialName("Value") val value: Double,
+    @SerialName("ClientTransactionID") val clientTransactionID: Int = 0,
+    @SerialName("ServerTransactionID") val serverTransactionID: Int = 0,
+    @SerialName("ErrorNumber") val errorNumber: Int = 0,
+    @SerialName("ErrorMessage") val errorMessage: String = ""
+)
+
+@Serializable
 data class IntResponse(
     @SerialName("Value") val value: Int,
     @SerialName("ClientTransactionID") val clientTransactionID: Int = 0,

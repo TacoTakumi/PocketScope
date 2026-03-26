@@ -5,10 +5,12 @@ import com.pocketscope.BuildConfig
 import com.pocketscope.alpaca.device.AlpacaCameraDevice
 import com.pocketscope.alpaca.device.AlpacaDevice
 import com.pocketscope.alpaca.device.AlpacaFocuserDevice
+import com.pocketscope.alpaca.device.DeviceMethodResult
 import com.pocketscope.alpaca.model.AlpacaErrors
 import com.pocketscope.alpaca.model.BoolResponse
 import com.pocketscope.alpaca.model.ConfiguredDevice
 import com.pocketscope.alpaca.model.ConfiguredDevicesResponse
+import com.pocketscope.alpaca.model.DoubleResponse
 import com.pocketscope.alpaca.model.IntArrayResponse
 import com.pocketscope.alpaca.model.IntResponse
 import com.pocketscope.alpaca.model.MethodResponse
@@ -91,33 +93,103 @@ class AlpacaServer(
     private var discoveryJob: Job? = null
 
     /**
-     * Case-insensitive parameter extraction from both query parameters (GET)
-     * and form body parameters (PUT/POST), per Alpaca spec requirement that
-     * parameter names are case-insensitive.
+     * Case-insensitive parameter lookup from a pre-parsed parameter map.
+     * The map must be built once per request via [buildParamMap] to avoid
+     * consuming the request body more than once.
      */
-    private suspend fun io.ktor.server.application.ApplicationCall.alpacaParam(name: String): String? {
-        // Check query parameters first (case-insensitive)
-        val queryMatch = request.queryParameters.entries()
-            .firstOrNull { it.key.equals(name, ignoreCase = true) }
-            ?.value?.firstOrNull()
-        if (queryMatch != null) return queryMatch
+    private fun paramFrom(params: Map<String, String>, name: String): String? =
+        params.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.value
 
-        // For PUT/POST, also check form body parameters
-        if (request.local.method == HttpMethod.Put || request.local.method == HttpMethod.Post) {
-            val formParams = receiveParameters()
-            val formMatch = formParams.entries()
-                .firstOrNull { it.key.equals(name, ignoreCase = true) }
-                ?.value?.firstOrNull()
-            if (formMatch != null) return formMatch
+    /** Parse ClientTransactionID as an unsigned 32-bit value, clamping negatives to 0. */
+    private fun parseClientTxId(params: Map<String, String>): Int {
+        val raw = paramFrom(params, "ClientTransactionID")?.toLongOrNull() ?: return 0
+        if (raw < 0 || raw > UInt.MAX_VALUE.toLong()) return 0
+        return raw.toInt()
+    }
+
+    /**
+     * Builds a merged, case-preserving parameter map from query parameters
+     * and (for PUT/POST) form body parameters. Must be called once per
+     * request — subsequent lookups use [paramFrom].
+     */
+    private suspend fun io.ktor.server.application.ApplicationCall.buildParamMap(): Map<String, String> {
+        val map = mutableMapOf<String, String>()
+        // Query parameters
+        request.queryParameters.entries().forEach { (key, values) ->
+            values.firstOrNull()?.let { map[key] = it }
         }
-
-        return null
+        // Form body parameters (PUT/POST only)
+        if (request.local.method == HttpMethod.Put || request.local.method == HttpMethod.Post) {
+            receiveParameters().entries().forEach { (key, values) ->
+                values.firstOrNull()?.let { map.putIfAbsent(key, it) }
+            }
+        }
+        return map
     }
 
     private fun findDevice(deviceType: String, deviceNumber: Int): AlpacaDevice? =
         alpacaDevices.firstOrNull {
             it.deviceType.equals(deviceType, ignoreCase = true) && it.deviceNumber == deviceNumber
         }
+
+    /**
+     * Maps a [DeviceMethodResult] to the appropriate HTTP response.
+     * - Known results (IntVal, BoolVal, etc.) → HTTP 200 with typed JSON
+     * - NotImplemented → HTTP 200 with NOT_IMPLEMENTED error in body
+     * - InvalidValue → HTTP 400
+     * - Unknown → HTTP 400 (method not recognized by this device type)
+     */
+    private suspend fun respondDeviceResult(
+        call: io.ktor.server.application.ApplicationCall,
+        result: DeviceMethodResult,
+        method: String,
+        clientTxId: Int,
+        serverTxId: Int
+    ) {
+        when (result) {
+            is DeviceMethodResult.IntVal -> call.respond(IntResponse(
+                value = result.value, clientTransactionID = clientTxId, serverTransactionID = serverTxId
+            ))
+            is DeviceMethodResult.BoolVal -> call.respond(BoolResponse(
+                value = result.value, clientTransactionID = clientTxId, serverTransactionID = serverTxId
+            ))
+            is DeviceMethodResult.DoubleVal -> call.respond(DoubleResponse(
+                value = result.value, clientTransactionID = clientTxId, serverTransactionID = serverTxId
+            ))
+            is DeviceMethodResult.StringVal -> call.respond(StringResponse(
+                value = result.value, clientTransactionID = clientTxId, serverTransactionID = serverTxId
+            ))
+            is DeviceMethodResult.StringListVal -> call.respond(StringArrayResponse(
+                value = result.value, clientTransactionID = clientTxId, serverTransactionID = serverTxId
+            ))
+            is DeviceMethodResult.IntListVal -> call.respond(IntArrayResponse(
+                value = result.value, clientTransactionID = clientTxId, serverTransactionID = serverTxId
+            ))
+            is DeviceMethodResult.Ok -> call.respond(MethodResponse(
+                clientTransactionID = clientTxId, serverTransactionID = serverTxId
+            ))
+            is DeviceMethodResult.NotImplemented -> call.respond(MethodResponse(
+                clientTransactionID = clientTxId, serverTransactionID = serverTxId,
+                errorNumber = AlpacaErrors.NOT_IMPLEMENTED,
+                errorMessage = "Method not implemented: ${result.method}"
+            ))
+            is DeviceMethodResult.InvalidValue -> call.respond(HttpStatusCode.BadRequest, MethodResponse(
+                clientTransactionID = clientTxId, serverTransactionID = serverTxId,
+                errorNumber = AlpacaErrors.INVALID_VALUE,
+                errorMessage = result.message
+            ))
+            is DeviceMethodResult.InvalidOperation -> call.respond(MethodResponse(
+                clientTransactionID = clientTxId, serverTransactionID = serverTxId,
+                errorNumber = AlpacaErrors.INVALID_OPERATION,
+                errorMessage = result.message
+            ))
+            is DeviceMethodResult.Unknown -> call.respond(HttpStatusCode.BadRequest, MethodResponse(
+                clientTransactionID = clientTxId, serverTransactionID = serverTxId,
+                errorNumber = AlpacaErrors.INVALID_VALUE,
+                errorMessage = "Unknown method for this device: $method"
+            ))
+        }
+    }
 
     /**
      * Starts the Alpaca HTTP server and UDP discovery listener.
@@ -155,7 +227,8 @@ class AlpacaServer(
                 // --- Management API (ALP-02) ---
 
                 get("/management/apiversions") {
-                    val clientTxId = call.alpacaParam("ClientTransactionID")?.toIntOrNull() ?: 0
+                    val params = call.buildParamMap()
+                    val clientTxId = parseClientTxId(params)
                     call.respond(IntArrayResponse(
                         value = listOf(1),
                         clientTransactionID = clientTxId,
@@ -164,7 +237,8 @@ class AlpacaServer(
                 }
 
                 get("/management/v1/description") {
-                    val clientTxId = call.alpacaParam("ClientTransactionID")?.toIntOrNull() ?: 0
+                    val params = call.buildParamMap()
+                    val clientTxId = parseClientTxId(params)
                     call.respond(ServerDescriptionResponse(
                         value = ServerDescription(
                             serverName = "PocketScope",
@@ -178,7 +252,8 @@ class AlpacaServer(
                 }
 
                 get("/management/v1/configureddevices") {
-                    val clientTxId = call.alpacaParam("ClientTransactionID")?.toIntOrNull() ?: 0
+                    val params = call.buildParamMap()
+                    val clientTxId = parseClientTxId(params)
                     call.respond(ConfiguredDevicesResponse(
                         value = alpacaDevices.map {
                             ConfiguredDevice(
@@ -198,9 +273,21 @@ class AlpacaServer(
                 get("/api/v1/{device_type}/{device_number}/{method}") {
                     val deviceType = call.parameters["device_type"] ?: ""
                     val deviceNumber = call.parameters["device_number"]?.toIntOrNull() ?: -1
-                    val method = call.parameters["method"]?.lowercase() ?: ""
-                    val clientTxId = call.alpacaParam("ClientTransactionID")?.toIntOrNull() ?: 0
+                    val method = call.parameters["method"] ?: ""
+                    val params = call.buildParamMap()
+                    val clientTxId = parseClientTxId(params)
                     val serverTxId = nextServerTransactionId()
+
+                    // Alpaca spec requires lowercase device type in URLs
+                    if (deviceType != deviceType.lowercase()) {
+                        call.respond(HttpStatusCode.BadRequest, MethodResponse(
+                            clientTransactionID = clientTxId,
+                            serverTransactionID = serverTxId,
+                            errorNumber = AlpacaErrors.INVALID_VALUE,
+                            errorMessage = "Invalid device type (must be lowercase): $deviceType"
+                        ))
+                        return@get
+                    }
 
                     val device = findDevice(deviceType, deviceNumber)
                     if (device == null) {
@@ -209,6 +296,17 @@ class AlpacaServer(
                             serverTransactionID = serverTxId,
                             errorNumber = AlpacaErrors.INVALID_VALUE,
                             errorMessage = "Unknown device: $deviceType/$deviceNumber"
+                        ))
+                        return@get
+                    }
+
+                    // Alpaca spec requires lowercase method names in URLs
+                    if (method != method.lowercase()) {
+                        call.respond(HttpStatusCode.BadRequest, MethodResponse(
+                            clientTransactionID = clientTxId,
+                            serverTransactionID = serverTxId,
+                            errorNumber = AlpacaErrors.INVALID_VALUE,
+                            errorMessage = "Invalid method name (must be lowercase): $method"
                         ))
                         return@get
                     }
@@ -254,21 +352,30 @@ class AlpacaServer(
                             clientTransactionID = clientTxId,
                             serverTransactionID = serverTxId
                         ))
-                        else -> call.respond(MethodResponse(
-                            clientTransactionID = clientTxId,
-                            serverTransactionID = serverTxId,
-                            errorNumber = AlpacaErrors.NOT_IMPLEMENTED,
-                            errorMessage = "Method not implemented: $method"
-                        ))
+                        else -> respondDeviceResult(
+                            call, device.handleGet(method), method, clientTxId, serverTxId
+                        )
                     }
                 }
 
                 put("/api/v1/{device_type}/{device_number}/{method}") {
                     val deviceType = call.parameters["device_type"] ?: ""
                     val deviceNumber = call.parameters["device_number"]?.toIntOrNull() ?: -1
-                    val method = call.parameters["method"]?.lowercase() ?: ""
-                    val clientTxId = call.alpacaParam("ClientTransactionID")?.toIntOrNull() ?: 0
+                    val method = call.parameters["method"] ?: ""
+                    val params = call.buildParamMap()
+                    val clientTxId = parseClientTxId(params)
                     val serverTxId = nextServerTransactionId()
+
+                    // Alpaca spec requires lowercase device type in URLs
+                    if (deviceType != deviceType.lowercase()) {
+                        call.respond(HttpStatusCode.BadRequest, MethodResponse(
+                            clientTransactionID = clientTxId,
+                            serverTransactionID = serverTxId,
+                            errorNumber = AlpacaErrors.INVALID_VALUE,
+                            errorMessage = "Invalid device type (must be lowercase): $deviceType"
+                        ))
+                        return@put
+                    }
 
                     val device = findDevice(deviceType, deviceNumber)
                     if (device == null) {
@@ -281,15 +388,34 @@ class AlpacaServer(
                         return@put
                     }
 
+                    // Alpaca spec requires lowercase method names in URLs
+                    if (method != method.lowercase()) {
+                        call.respond(HttpStatusCode.BadRequest, MethodResponse(
+                            clientTransactionID = clientTxId,
+                            serverTransactionID = serverTxId,
+                            errorNumber = AlpacaErrors.INVALID_VALUE,
+                            errorMessage = "Invalid method name (must be lowercase): $method"
+                        ))
+                        return@put
+                    }
+
                     when (method) {
                         "connected" -> {
-                            val connectedParam = call.alpacaParam("Connected")
-                            val connectedValue = connectedParam?.lowercase() == "true"
-                            device.isConnected = connectedValue
-                            call.respond(MethodResponse(
-                                clientTransactionID = clientTxId,
-                                serverTransactionID = serverTxId
-                            ))
+                            val raw = params["Connected"]?.lowercase()
+                            if (raw != "true" && raw != "false") {
+                                call.respond(HttpStatusCode.BadRequest, MethodResponse(
+                                    clientTransactionID = clientTxId,
+                                    serverTransactionID = serverTxId,
+                                    errorNumber = AlpacaErrors.INVALID_VALUE,
+                                    errorMessage = "Connected parameter must be 'true' or 'false'"
+                                ))
+                            } else {
+                                device.isConnected = raw == "true"
+                                call.respond(MethodResponse(
+                                    clientTransactionID = clientTxId,
+                                    serverTransactionID = serverTxId
+                                ))
+                            }
                         }
                         "connect" -> {
                             device.isConnected = true
@@ -305,12 +431,9 @@ class AlpacaServer(
                                 serverTransactionID = serverTxId
                             ))
                         }
-                        else -> call.respond(MethodResponse(
-                            clientTransactionID = clientTxId,
-                            serverTransactionID = serverTxId,
-                            errorNumber = AlpacaErrors.NOT_IMPLEMENTED,
-                            errorMessage = "Method not implemented: $method"
-                        ))
+                        else -> respondDeviceResult(
+                            call, device.handlePut(method, params), method, clientTxId, serverTxId
+                        )
                     }
                 }
             }
@@ -357,6 +480,15 @@ class AlpacaServer(
                 val message = String(packet.data, 0, packet.length).trim()
                 val senderIp = packet.address.hostAddress ?: continue
                 if (message == "alpacadiscovery1" && NetworkFilter.isPrivateIp(senderIp)) {
+                    if (approvalManager != null) {
+                        // Silently drop duplicate discovery while a dialog is already showing
+                        if (approvalManager.pendingApproval.value != null) continue
+                        val approved = approvalManager.awaitApproval(senderIp)
+                        if (!approved) {
+                            onEvent?.invoke("Discovery from $senderIp denied")
+                            continue
+                        }
+                    }
                     val response = """{"AlpacaPort":$port}""".toByteArray()
                     val responsePacket = DatagramPacket(response, response.size, packet.address, packet.port)
                     socket.send(responsePacket)

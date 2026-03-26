@@ -91,7 +91,7 @@ fun SettingsScreen(
                     )
                 }
             } else {
-                items(whitelistedIps.toList().sorted()) { ip ->
+                items(whitelistedIps.toList().sorted(), key = { it }) { ip ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
