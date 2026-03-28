@@ -19,6 +19,12 @@ sealed class DeviceMethodResult {
     data class InvalidValue(val message: String) : DeviceMethodResult()
     /** Method is valid but cannot be performed in the current state. */
     data class InvalidOperation(val message: String) : DeviceMethodResult()
+    /** Image array data ready for binary (ImageBytes) or JSON transfer. */
+    data class ImageData(
+        val rawBytes: ByteArray,
+        val width: Int,
+        val height: Int
+    ) : DeviceMethodResult()
     /** Method name is not recognized for this device type. */
     object Unknown : DeviceMethodResult()
 }

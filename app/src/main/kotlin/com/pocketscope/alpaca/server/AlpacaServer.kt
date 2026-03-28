@@ -35,6 +35,7 @@ import io.ktor.server.plugins.contentnegotiation.ContentNegotiation
 import io.ktor.server.plugins.origin
 import io.ktor.server.request.receiveParameters
 import io.ktor.server.response.respond
+import io.ktor.server.response.respondBytes
 import io.ktor.server.routing.get
 import io.ktor.server.routing.put
 import io.ktor.server.routing.routing
@@ -81,7 +82,13 @@ class AlpacaServer(
 
     private val alpacaDevices: List<AlpacaDevice> = buildList {
         registry.captureDevices.forEachIndexed { index, captureDevice ->
-            add(AlpacaCameraDevice(captureDevice, index, UUID.randomUUID().toString()))
+            add(AlpacaCameraDevice(
+                captureDevice = captureDevice,
+                deviceNumber = index,
+                uniqueId = UUID.randomUUID().toString(),
+                scope = scope,
+                focusDioptersProvider = { registry.focuserDevice.currentDiopters() }
+            ))
         }
         add(AlpacaFocuserDevice(registry.focuserDevice, UUID.randomUUID().toString()))
     }
@@ -183,12 +190,76 @@ class AlpacaServer(
                 errorNumber = AlpacaErrors.INVALID_OPERATION,
                 errorMessage = result.message
             ))
+            is DeviceMethodResult.ImageData -> {
+                Log.i(TAG, "Serving ImageBytes: ${result.width}x${result.height}, ${result.rawBytes.size} bytes")
+                respondImageBytes(call, result, clientTxId, serverTxId)
+            }
             is DeviceMethodResult.Unknown -> call.respond(HttpStatusCode.BadRequest, MethodResponse(
                 clientTransactionID = clientTxId, serverTransactionID = serverTxId,
                 errorNumber = AlpacaErrors.INVALID_VALUE,
                 errorMessage = "Unknown method for this device: $method"
             ))
         }
+    }
+
+    /**
+     * Responds with ASCOM Alpaca ImageBytes binary format.
+     *
+     * ASCOM ImageBytes pixel order is row-major: pixel[0,0], pixel[1,0], ...
+     * (all columns of row 0, then row 1, etc.) — same as Camera2 raw output.
+     *
+     * Format (all little-endian int32 except pixel data):
+     * - Bytes 0-3:   MetadataVersion = 1
+     * - Bytes 4-7:   ErrorNumber = 0
+     * - Bytes 8-11:  ClientTransactionID
+     * - Bytes 12-15: ServerTransactionID
+     * - Bytes 16-19: DataStart = 44
+     * - Bytes 20-23: ImageElementType (1=Int16, 2=Int32)
+     * - Bytes 24-27: TransmissionElementType (same)
+     * - Bytes 28-31: Rank = 2 (2D Bayer)
+     * - Bytes 32-35: Dimension1 = width (columns)
+     * - Bytes 36-39: Dimension2 = height (rows)
+     * - Bytes 40-43: Dimension3 = 0
+     * - Bytes 44+:   Raw pixel data (16-bit LE unsigned, row-major)
+     */
+    private suspend fun respondImageBytes(
+        call: io.ktor.server.application.ApplicationCall,
+        imageData: DeviceMethodResult.ImageData,
+        clientTxId: Int,
+        serverTxId: Int
+    ) {
+        val headerSize = 44
+        val pixelCount = imageData.width * imageData.height
+        // Convert 16-bit LE unsigned pixels to 32-bit LE signed ints
+        // Most ASCOM clients (N.I.N.A.) expect Int32 pixel data
+        val buffer = java.nio.ByteBuffer.allocate(headerSize + pixelCount * 4)
+            .order(java.nio.ByteOrder.LITTLE_ENDIAN)
+
+        // Metadata header
+        buffer.putInt(1)                    // MetadataVersion
+        buffer.putInt(0)                    // ErrorNumber
+        buffer.putInt(clientTxId)           // ClientTransactionID
+        buffer.putInt(serverTxId)           // ServerTransactionID
+        buffer.putInt(headerSize)           // DataStart
+        buffer.putInt(2)                    // ImageElementType: 2 = Int32
+        buffer.putInt(2)                    // TransmissionElementType: 2 = Int32
+        buffer.putInt(2)                    // Rank: 2 = 2D
+        buffer.putInt(imageData.width)      // Dimension1 = width (columns)
+        buffer.putInt(imageData.height)     // Dimension2 = height (rows)
+        buffer.putInt(0)                    // Dimension3 = 0
+
+        // Convert 16-bit LE raw pixels to 32-bit LE ints
+        val raw = imageData.rawBytes
+        for (i in 0 until pixelCount) {
+            val lo = raw[i * 2].toInt() and 0xFF
+            val hi = raw[i * 2 + 1].toInt() and 0xFF
+            buffer.putInt(lo or (hi shl 8))
+        }
+
+        call.respondBytes(
+            bytes = buffer.array(),
+            contentType = io.ktor.http.ContentType("application", "imagebytes")
+        )
     }
 
     /**
@@ -277,6 +348,10 @@ class AlpacaServer(
                     val params = call.buildParamMap()
                     val clientTxId = parseClientTxId(params)
                     val serverTxId = nextServerTransactionId()
+
+                    if (method == "imageready" || method == "imagearray" || method == "imagearrayvariant" || method == "camerastate") {
+                        Log.d(TAG, "GET $deviceType/$deviceNumber/$method")
+                    }
 
                     // Alpaca spec requires lowercase device type in URLs
                     if (deviceType != deviceType.lowercase()) {
