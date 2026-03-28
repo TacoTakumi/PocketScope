@@ -118,6 +118,7 @@ class IndiServerService : Service() {
         val alpaca = AlpacaServer(
             registry = registry,
             scope = serviceScope,
+            settings = settings,
             onEvent = { event -> addEvent(event) },
             approvalManager = approval
         )

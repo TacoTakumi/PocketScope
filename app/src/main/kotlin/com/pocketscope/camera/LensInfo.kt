@@ -39,7 +39,8 @@ data class LensInfo(
     val maxDigitalZoom: Float?,        // from SCALER_AVAILABLE_MAX_DIGITAL_ZOOM
     val activeArraySize: Rect,          // from SENSOR_INFO_ACTIVE_ARRAY_SIZE
     val cfaArrangement: Int = 0,          // Camera2 SENSOR_INFO_COLOR_FILTER_ARRANGEMENT constant (0=RGGB)
-    val aperture: Float? = null           // f-number from LENS_INFO_AVAILABLE_APERTURES (null if unavailable)
+    val aperture: Float? = null,          // f-number from LENS_INFO_AVAILABLE_APERTURES (null if unavailable)
+    val whiteLevel: Int = 1023            // SENSOR_INFO_WHITE_LEVEL — max raw ADU (e.g. 1023 for 10-bit)
 ) {
     /** Human-readable lens type based on focal length relative to a reference set. */
     val lensType: String get() = when {

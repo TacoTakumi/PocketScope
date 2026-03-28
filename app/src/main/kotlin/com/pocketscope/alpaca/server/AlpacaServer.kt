@@ -11,6 +11,7 @@ import com.pocketscope.alpaca.model.BoolResponse
 import com.pocketscope.alpaca.model.ConfiguredDevice
 import com.pocketscope.alpaca.model.ConfiguredDevicesResponse
 import com.pocketscope.alpaca.model.DoubleResponse
+import com.pocketscope.alpaca.model.ImageArrayResponse
 import com.pocketscope.alpaca.model.IntArrayResponse
 import com.pocketscope.alpaca.model.IntResponse
 import com.pocketscope.alpaca.model.MethodResponse
@@ -20,6 +21,7 @@ import com.pocketscope.alpaca.model.StringArrayResponse
 import com.pocketscope.alpaca.model.StringResponse
 import com.pocketscope.device.DeviceRegistry
 import com.pocketscope.network.ApprovalManager
+import com.pocketscope.settings.SettingsRepository
 import com.pocketscope.network.NetworkFilter
 import io.ktor.http.HttpMethod
 import io.ktor.http.HttpStatusCode
@@ -48,7 +50,6 @@ import kotlinx.serialization.json.Json
 import java.net.DatagramPacket
 import java.net.DatagramSocket
 import java.net.InetSocketAddress
-import java.util.UUID
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -69,6 +70,7 @@ import java.util.concurrent.atomic.AtomicInteger
 class AlpacaServer(
     private val registry: DeviceRegistry,
     private val scope: CoroutineScope,
+    private val settings: SettingsRepository,
     private val port: Int = DEFAULT_PORT,
     private val host: String = "0.0.0.0",
     private val onEvent: ((String) -> Unit)? = null,
@@ -80,17 +82,24 @@ class AlpacaServer(
         const val DISCOVERY_PORT = 32227
     }
 
-    private val alpacaDevices: List<AlpacaDevice> = buildList {
-        registry.captureDevices.forEachIndexed { index, captureDevice ->
-            add(AlpacaCameraDevice(
-                captureDevice = captureDevice,
-                deviceNumber = index,
-                uniqueId = UUID.randomUUID().toString(),
-                scope = scope,
-                focusDioptersProvider = { registry.focuserDevice.currentDiopters() }
+    private lateinit var alpacaDevices: List<AlpacaDevice>
+
+    private suspend fun initDevices() {
+        alpacaDevices = buildList {
+            registry.captureDevices.forEachIndexed { index, captureDevice ->
+                add(AlpacaCameraDevice(
+                    captureDevice = captureDevice,
+                    deviceNumber = index,
+                    uniqueId = settings.getDeviceUuid("camera", index),
+                    scope = scope,
+                    focusDioptersProvider = { registry.focuserDevice.currentDiopters() }
+                ))
+            }
+            add(AlpacaFocuserDevice(
+                registry.focuserDevice,
+                settings.getDeviceUuid("focuser", 0)
             ))
         }
-        add(AlpacaFocuserDevice(registry.focuserDevice, UUID.randomUUID().toString()))
     }
 
     private val serverTransactionCounter = AtomicInteger(1)
@@ -191,8 +200,16 @@ class AlpacaServer(
                 errorMessage = result.message
             ))
             is DeviceMethodResult.ImageData -> {
-                Log.i(TAG, "Serving ImageBytes: ${result.width}x${result.height}, ${result.rawBytes.size} bytes")
-                respondImageBytes(call, result, clientTxId, serverTxId)
+                val accept = call.request.headers["Accept"] ?: ""
+                val wantJson = accept.contains("application/json", ignoreCase = true) &&
+                    !accept.contains("application/imagebytes", ignoreCase = true)
+                if (wantJson) {
+                    Log.i(TAG, "Serving ImageArray JSON: ${result.width}x${result.height}")
+                    respondImageJson(call, result, clientTxId, serverTxId)
+                } else {
+                    Log.i(TAG, "Serving ImageBytes: ${result.width}x${result.height}, ${result.rawBytes.size} bytes")
+                    respondImageBytes(call, result, clientTxId, serverTxId)
+                }
             }
             is DeviceMethodResult.Unknown -> call.respond(HttpStatusCode.BadRequest, MethodResponse(
                 clientTransactionID = clientTxId, serverTransactionID = serverTxId,
@@ -205,22 +222,22 @@ class AlpacaServer(
     /**
      * Responds with ASCOM Alpaca ImageBytes binary format.
      *
-     * ASCOM ImageBytes pixel order is row-major: pixel[0,0], pixel[1,0], ...
-     * (all columns of row 0, then row 1, etc.) — same as Camera2 raw output.
+     * ASCOM ImageBytes stores pixels with Dimension1 (width/columns) varying fastest,
+     * which is row-major order — same as Camera2 raw output. No transposition needed.
      *
-     * Format (all little-endian int32 except pixel data):
+     * Format (all little-endian int32):
      * - Bytes 0-3:   MetadataVersion = 1
      * - Bytes 4-7:   ErrorNumber = 0
      * - Bytes 8-11:  ClientTransactionID
      * - Bytes 12-15: ServerTransactionID
      * - Bytes 16-19: DataStart = 44
-     * - Bytes 20-23: ImageElementType (1=Int16, 2=Int32)
-     * - Bytes 24-27: TransmissionElementType (same)
-     * - Bytes 28-31: Rank = 2 (2D Bayer)
-     * - Bytes 32-35: Dimension1 = width (columns)
-     * - Bytes 36-39: Dimension2 = height (rows)
+     * - Bytes 20-23: ImageElementType (2 = Int32)
+     * - Bytes 24-27: TransmissionElementType (2 = Int32)
+     * - Bytes 28-31: Rank = 2 (2D monochrome Bayer)
+     * - Bytes 32-35: Dimension1 = width (NumX / columns)
+     * - Bytes 36-39: Dimension2 = height (NumY / rows)
      * - Bytes 40-43: Dimension3 = 0
-     * - Bytes 44+:   Raw pixel data (16-bit LE unsigned, row-major)
+     * - Bytes 44+:   Pixel data as Int32, column-major order
      */
     private suspend fun respondImageBytes(
         call: io.ktor.server.application.ApplicationCall,
@@ -229,9 +246,9 @@ class AlpacaServer(
         serverTxId: Int
     ) {
         val headerSize = 44
-        val pixelCount = imageData.width * imageData.height
-        // Convert 16-bit LE unsigned pixels to 32-bit LE signed ints
-        // Most ASCOM clients (N.I.N.A.) expect Int32 pixel data
+        val width = imageData.width
+        val height = imageData.height
+        val pixelCount = width * height
         val buffer = java.nio.ByteBuffer.allocate(headerSize + pixelCount * 4)
             .order(java.nio.ByteOrder.LITTLE_ENDIAN)
 
@@ -244,22 +261,67 @@ class AlpacaServer(
         buffer.putInt(2)                    // ImageElementType: 2 = Int32
         buffer.putInt(2)                    // TransmissionElementType: 2 = Int32
         buffer.putInt(2)                    // Rank: 2 = 2D
-        buffer.putInt(imageData.width)      // Dimension1 = width (columns)
-        buffer.putInt(imageData.height)     // Dimension2 = height (rows)
+        buffer.putInt(height)               // Dimension1 = NumY (rows)
+        buffer.putInt(width)                // Dimension2 = NumX (columns)
         buffer.putInt(0)                    // Dimension3 = 0
 
-        // Convert 16-bit LE raw pixels to 32-bit LE ints
+        // Convert 16-bit LE raw pixels to 32-bit LE ints.
+        // Row-major order matches Camera2 output directly.
         val raw = imageData.rawBytes
+        var minVal = Int.MAX_VALUE
+        var maxVal = Int.MIN_VALUE
+        var sumVal = 0L
         for (i in 0 until pixelCount) {
             val lo = raw[i * 2].toInt() and 0xFF
             val hi = raw[i * 2 + 1].toInt() and 0xFF
-            buffer.putInt(lo or (hi shl 8))
+            val pixel = lo or (hi shl 8)
+            if (pixel < minVal) minVal = pixel
+            if (pixel > maxVal) maxVal = pixel
+            sumVal += pixel
+            buffer.putInt(pixel)
         }
+        val avgVal = if (pixelCount > 0) sumVal / pixelCount else 0
+        Log.i(TAG, "ImageBytes pixel stats: min=$minVal max=$maxVal avg=$avgVal count=$pixelCount rawBytes=${raw.size}")
 
         call.respondBytes(
             bytes = buffer.array(),
             contentType = io.ktor.http.ContentType("application", "imagebytes")
         )
+    }
+
+    /**
+     * Responds with ASCOM Alpaca ImageArray JSON format.
+     *
+     * Value is a 2D array matching ImageBytes layout: outer = rows, inner = columns.
+     * Each pixel is a 32-bit signed int converted from the 16-bit LE raw data.
+     */
+    private suspend fun respondImageJson(
+        call: io.ktor.server.application.ApplicationCall,
+        imageData: DeviceMethodResult.ImageData,
+        clientTxId: Int,
+        serverTxId: Int
+    ) {
+        val width = imageData.width
+        val height = imageData.height
+        val raw = imageData.rawBytes
+
+        val rows = ArrayList<List<Int>>(height)
+        for (row in 0 until height) {
+            val cols = ArrayList<Int>(width)
+            for (col in 0 until width) {
+                val srcIdx = (row * width + col) * 2
+                val lo = raw[srcIdx].toInt() and 0xFF
+                val hi = raw[srcIdx + 1].toInt() and 0xFF
+                cols.add(lo or (hi shl 8))
+            }
+            rows.add(cols)
+        }
+
+        call.respond(ImageArrayResponse(
+            value = rows,
+            clientTransactionID = clientTxId,
+            serverTransactionID = serverTxId
+        ))
     }
 
     /**
@@ -269,7 +331,8 @@ class AlpacaServer(
      * serialization and a global security interceptor. The UDP discovery
      * listener runs on port 32227 in a separate coroutine.
      */
-    fun start() {
+    suspend fun start() {
+        initDevices()
         val versionName = BuildConfig.VERSION_NAME
         engine = embeddedServer(CIO, port = port, host = host) {
             install(ContentNegotiation) {

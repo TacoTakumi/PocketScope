@@ -58,6 +58,17 @@ data class StringArrayResponse(
 )
 
 @Serializable
+data class ImageArrayResponse(
+    @SerialName("Type") val type: Int = 2,       // 2 = Int32
+    @SerialName("Rank") val rank: Int = 2,        // 2 = 2D
+    @SerialName("Value") val value: List<List<Int>>,
+    @SerialName("ClientTransactionID") val clientTransactionID: Int = 0,
+    @SerialName("ServerTransactionID") val serverTransactionID: Int = 0,
+    @SerialName("ErrorNumber") val errorNumber: Int = 0,
+    @SerialName("ErrorMessage") val errorMessage: String = ""
+)
+
+@Serializable
 data class MethodResponse(
     @SerialName("ClientTransactionID") val clientTransactionID: Int = 0,
     @SerialName("ServerTransactionID") val serverTransactionID: Int = 0,

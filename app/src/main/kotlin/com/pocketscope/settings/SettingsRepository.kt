@@ -3,9 +3,12 @@ package com.pocketscope.settings
 import android.content.Context
 import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.core.stringSetPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import java.util.UUID
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.map
 
 private val Context.dataStore by preferencesDataStore(name = "pocketscope_settings")
@@ -64,5 +67,18 @@ class SettingsRepository(private val context: Context) {
         context.dataStore.edit { prefs ->
             prefs[ALPACA_ENABLED] = enabled
         }
+    }
+
+    /**
+     * Returns a persistent UUID for an Alpaca device, generating and saving one on first call.
+     * Key format: "device_uuid_{deviceType}_{deviceNumber}" (e.g. "device_uuid_camera_0").
+     */
+    suspend fun getDeviceUuid(deviceType: String, deviceNumber: Int): String {
+        val key = stringPreferencesKey("device_uuid_${deviceType}_${deviceNumber}")
+        val existing = context.dataStore.data.first()[key]
+        if (existing != null) return existing
+        val newUuid = UUID.randomUUID().toString()
+        context.dataStore.edit { prefs -> prefs[key] = newUuid }
+        return newUuid
     }
 }

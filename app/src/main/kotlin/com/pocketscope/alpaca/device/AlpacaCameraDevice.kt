@@ -92,7 +92,13 @@ class AlpacaCameraDevice(
 
             // --- Sensor type / Bayer ---
             // ASCOM SensorType: 0=Mono, 1=Color(debayered), 2=RGGB, 3=CMYG, 4=CMYG2, 5=LRGB
-            "sensortype" -> DeviceMethodResult.IntVal(2) // 2 = RGGB (raw Bayer)
+            // Camera2 CFA: 0=RGGB, 1=GRBG, 2=GBRG, 3=BGGR — all map to ASCOM SensorType 2 (RGGB)
+            // since ASCOM uses BayerOffsetX/Y to distinguish the pattern variant
+            "sensortype" -> {
+                val ascomType = if (lens.cfaArrangement in 0..3) 2 else 0
+                Log.d(TAG, "sensortype: cfa=${lens.cfaArrangement} -> ASCOM=$ascomType")
+                DeviceMethodResult.IntVal(ascomType)
+            }
             "sensorname" -> DeviceMethodResult.StringVal("${lens.lensType} Sensor")
             // Bayer offsets derived from Camera2 CFA: 0=RGGB(0,0), 1=GRBG(1,0), 2=GBRG(0,1), 3=BGGR(1,1)
             "bayeroffsetx" -> DeviceMethodResult.IntVal(if (lens.cfaArrangement == 1 || lens.cfaArrangement == 3) 1 else 0)
@@ -164,7 +170,7 @@ class AlpacaCameraDevice(
                     )
                 }
             }
-            "maxadu" -> DeviceMethodResult.IntVal(65535) // 16-bit
+            "maxadu" -> DeviceMethodResult.IntVal(lens.whiteLevel)
             "electronsperadu" -> DeviceMethodResult.NotImplemented(method)
             "fullwellcapacity" -> DeviceMethodResult.NotImplemented(method)
 
@@ -244,6 +250,11 @@ class AlpacaCameraDevice(
                 readoutMode = v
                 DeviceMethodResult.Ok
             }
+            // SensorType and Bayer offsets are read-only hardware properties;
+            // accept PUTs silently so clients like NINA don't error
+            "sensortype" -> DeviceMethodResult.Ok
+            "bayeroffsetx" -> DeviceMethodResult.Ok
+            "bayeroffsety" -> DeviceMethodResult.Ok
             "cooleron" -> DeviceMethodResult.NotImplemented(method)
             "setccdtemperature" -> DeviceMethodResult.NotImplemented(method)
             "fastreadout" -> DeviceMethodResult.NotImplemented(method)
