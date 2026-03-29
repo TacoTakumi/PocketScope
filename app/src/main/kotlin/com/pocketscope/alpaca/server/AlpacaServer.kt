@@ -222,22 +222,12 @@ class AlpacaServer(
     /**
      * Responds with ASCOM Alpaca ImageBytes binary format.
      *
-     * ASCOM ImageBytes stores pixels with Dimension1 (width/columns) varying fastest,
-     * which is row-major order — same as Camera2 raw output. No transposition needed.
+     * ASCOM convention: array is indexed [x, y] where x=column, y=row.
+     * Dimension1 = NumX (width), Dimension2 = NumY (height).
+     * Binary pixel order is column-major: all rows for column 0, then column 1, etc.
+     * Camera2 delivers row-major data, so we transpose during the write loop.
      *
-     * Format (all little-endian int32):
-     * - Bytes 0-3:   MetadataVersion = 1
-     * - Bytes 4-7:   ErrorNumber = 0
-     * - Bytes 8-11:  ClientTransactionID
-     * - Bytes 12-15: ServerTransactionID
-     * - Bytes 16-19: DataStart = 44
-     * - Bytes 20-23: ImageElementType (2 = Int32)
-     * - Bytes 24-27: TransmissionElementType (2 = Int32)
-     * - Bytes 28-31: Rank = 2 (2D monochrome Bayer)
-     * - Bytes 32-35: Dimension1 = width (NumX / columns)
-     * - Bytes 36-39: Dimension2 = height (NumY / rows)
-     * - Bytes 40-43: Dimension3 = 0
-     * - Bytes 44+:   Pixel data as Int32, column-major order
+     * See Doc/ascom-imagebytes-format.md for full format reference.
      */
     private suspend fun respondImageBytes(
         call: io.ktor.server.application.ApplicationCall,
@@ -252,7 +242,7 @@ class AlpacaServer(
         val buffer = java.nio.ByteBuffer.allocate(headerSize + pixelCount * 4)
             .order(java.nio.ByteOrder.LITTLE_ENDIAN)
 
-        // Metadata header
+        // Metadata header (11 x Int32 LE)
         buffer.putInt(1)                    // MetadataVersion
         buffer.putInt(0)                    // ErrorNumber
         buffer.putInt(clientTxId)           // ClientTransactionID
@@ -261,24 +251,27 @@ class AlpacaServer(
         buffer.putInt(2)                    // ImageElementType: 2 = Int32
         buffer.putInt(2)                    // TransmissionElementType: 2 = Int32
         buffer.putInt(2)                    // Rank: 2 = 2D
-        buffer.putInt(height)               // Dimension1 = NumY (rows)
-        buffer.putInt(width)                // Dimension2 = NumX (columns)
+        buffer.putInt(width)                // Dimension1 = NumX (columns)
+        buffer.putInt(height)               // Dimension2 = NumY (rows)
         buffer.putInt(0)                    // Dimension3 = 0
 
-        // Convert 16-bit LE raw pixels to 32-bit LE ints.
-        // Row-major order matches Camera2 output directly.
+        // Convert 16-bit LE raw pixels to 32-bit LE ints, column-major order.
+        // Camera2 source is row-major, so we index as (y * width + x) to transpose.
         val raw = imageData.rawBytes
         var minVal = Int.MAX_VALUE
         var maxVal = Int.MIN_VALUE
         var sumVal = 0L
-        for (i in 0 until pixelCount) {
-            val lo = raw[i * 2].toInt() and 0xFF
-            val hi = raw[i * 2 + 1].toInt() and 0xFF
-            val pixel = lo or (hi shl 8)
-            if (pixel < minVal) minVal = pixel
-            if (pixel > maxVal) maxVal = pixel
-            sumVal += pixel
-            buffer.putInt(pixel)
+        for (x in 0 until width) {
+            for (y in 0 until height) {
+                val srcIdx = (y * width + x) * 2
+                val lo = raw[srcIdx].toInt() and 0xFF
+                val hi = raw[srcIdx + 1].toInt() and 0xFF
+                val pixel = lo or (hi shl 8)
+                if (pixel < minVal) minVal = pixel
+                if (pixel > maxVal) maxVal = pixel
+                sumVal += pixel
+                buffer.putInt(pixel)
+            }
         }
         val avgVal = if (pixelCount > 0) sumVal / pixelCount else 0
         Log.i(TAG, "ImageBytes pixel stats: min=$minVal max=$maxVal avg=$avgVal count=$pixelCount rawBytes=${raw.size}")
@@ -292,8 +285,8 @@ class AlpacaServer(
     /**
      * Responds with ASCOM Alpaca ImageArray JSON format.
      *
-     * Value is a 2D array matching ImageBytes layout: outer = rows, inner = columns.
-     * Each pixel is a 32-bit signed int converted from the 16-bit LE raw data.
+     * Column-major: outer array has NumX (width) elements, each inner array
+     * has NumY (height) elements. See Doc/ascom-imagebytes-format.md.
      */
     private suspend fun respondImageJson(
         call: io.ktor.server.application.ApplicationCall,
@@ -305,20 +298,20 @@ class AlpacaServer(
         val height = imageData.height
         val raw = imageData.rawBytes
 
-        val rows = ArrayList<List<Int>>(height)
-        for (row in 0 until height) {
-            val cols = ArrayList<Int>(width)
-            for (col in 0 until width) {
-                val srcIdx = (row * width + col) * 2
+        val columns = ArrayList<List<Int>>(width)
+        for (x in 0 until width) {
+            val col = ArrayList<Int>(height)
+            for (y in 0 until height) {
+                val srcIdx = (y * width + x) * 2
                 val lo = raw[srcIdx].toInt() and 0xFF
                 val hi = raw[srcIdx + 1].toInt() and 0xFF
-                cols.add(lo or (hi shl 8))
+                col.add(lo or (hi shl 8))
             }
-            rows.add(cols)
+            columns.add(col)
         }
 
         call.respond(ImageArrayResponse(
-            value = rows,
+            value = columns,
             clientTransactionID = clientTxId,
             serverTransactionID = serverTxId
         ))
