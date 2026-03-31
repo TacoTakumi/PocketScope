@@ -11,7 +11,6 @@ import com.pocketscope.alpaca.model.BoolResponse
 import com.pocketscope.alpaca.model.ConfiguredDevice
 import com.pocketscope.alpaca.model.ConfiguredDevicesResponse
 import com.pocketscope.alpaca.model.DoubleResponse
-import com.pocketscope.alpaca.model.ImageArrayResponse
 import com.pocketscope.alpaca.model.IntArrayResponse
 import com.pocketscope.alpaca.model.IntResponse
 import com.pocketscope.alpaca.model.MethodResponse
@@ -204,8 +203,12 @@ class AlpacaServer(
                 val wantJson = accept.contains("application/json", ignoreCase = true) &&
                     !accept.contains("application/imagebytes", ignoreCase = true)
                 if (wantJson) {
-                    Log.i(TAG, "Serving ImageArray JSON: ${result.width}x${result.height}")
-                    respondImageJson(call, result, clientTxId, serverTxId)
+                    Log.w(TAG, "JSON ImageArray requested but not supported — use ImageBytes")
+                    call.respond(MethodResponse(
+                        clientTransactionID = clientTxId, serverTransactionID = serverTxId,
+                        errorNumber = AlpacaErrors.NOT_IMPLEMENTED,
+                        errorMessage = "JSON ImageArray is not supported — Android heap cannot serialize multi-megapixel arrays as JSON. Use ImageBytes (Accept: application/imagebytes) instead."
+                    ))
                 } else {
                     Log.i(TAG, "Serving ImageBytes: ${result.width}x${result.height}, ${result.rawBytes.size} bytes")
                     respondImageBytes(call, result, clientTxId, serverTxId)
@@ -280,41 +283,6 @@ class AlpacaServer(
             bytes = buffer.array(),
             contentType = io.ktor.http.ContentType("application", "imagebytes")
         )
-    }
-
-    /**
-     * Responds with ASCOM Alpaca ImageArray JSON format.
-     *
-     * Column-major: outer array has NumX (width) elements, each inner array
-     * has NumY (height) elements. See Doc/ascom-imagebytes-format.md.
-     */
-    private suspend fun respondImageJson(
-        call: io.ktor.server.application.ApplicationCall,
-        imageData: DeviceMethodResult.ImageData,
-        clientTxId: Int,
-        serverTxId: Int
-    ) {
-        val width = imageData.width
-        val height = imageData.height
-        val raw = imageData.rawBytes
-
-        val columns = ArrayList<List<Int>>(width)
-        for (x in 0 until width) {
-            val col = ArrayList<Int>(height)
-            for (y in 0 until height) {
-                val srcIdx = (y * width + x) * 2
-                val lo = raw[srcIdx].toInt() and 0xFF
-                val hi = raw[srcIdx + 1].toInt() and 0xFF
-                col.add(lo or (hi shl 8))
-            }
-            columns.add(col)
-        }
-
-        call.respond(ImageArrayResponse(
-            value = columns,
-            clientTransactionID = clientTxId,
-            serverTransactionID = serverTxId
-        ))
     }
 
     /**

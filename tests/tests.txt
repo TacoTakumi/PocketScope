@@ -1,0 +1,80 @@
+
+PHONE_IP=172.16.1.52
+## INDI tests.
+
+# 1. Discovery — list all devices and properties                                                                                               
+python tests/indi_test_client.py --host $PHONE_IP                                                                                            
+                                                                                                                                                 
+# 2. Connect to default CCD device                                                                                                             
+python tests/indi_test_client.py --host $PHONE_IP --connect                                                                                  
+                                                                                                                                                 
+# 3. Lens info — print focal length and aperture for all CCD devices                                                                           
+python tests/indi_test_client.py --host $PHONE_IP --lens-info
+                                                                                                                                                 
+# 4. Focuser info — print position, range, direction                                                                                           
+python tests/indi_test_client.py --host $PHONE_IP --focus-info
+                                                                                                                                                 
+# 5. Focuser absolute move                                                                                                                     
+python tests/indi_test_client.py --host $PHONE_IP --focus-abs 500
+python tests/indi_test_client.py --host $PHONE_IP --focus-abs 0                                                                              
+                                                                                                                                                 
+# 6. Focuser relative move                                                                                                                     
+python tests/indi_test_client.py --host $PHONE_IP --focus-rel 100                                                                            
+                                                                                                                                                 
+# 7. Capture 1s exposure (default camera)
+python tests/indi_test_client.py --host $PHONE_IP --device "PocketScope Main" --capture 1.0 -o indi_capture.fits
+                                                                                                                                                 
+# 8. Capture from a specific camera device                                                                                                     
+python tests/indi_test_client.py --host $PHONE_IP --device "PocketScope Main" --capture 1.0 -o indi_main.fits                                
+                                                                                                                                                 
+# 9. Capture with longer exposure                  
+python tests/indi_test_client.py --host $PHONE_IP --capture 5.0 -o indi_5s.fits                                                              
+                                                                                                                                                 
+# 10. Combined: connect, focus, then capture                                                                                                   
+python tests/indi_test_client.py --host $PHONE_IP --focus-abs 500 --capture 2.0 -o indi_focused.fits
+
+## Alpaca tests.
+
+# 1. Discovery + full property dump (no actions)                                                                                               
+python tests/alpaca_test_client.py --host $PHONE_IP                                                                                          
+                                                                                                                                                 
+# 2. Run all regression tests for the fixes we just made                                                                                       
+python tests/alpaca_test_client.py --host $PHONE_IP --test-all                                                                               
+                                                                                                                                                 
+# 3. Focuser movement                              
+python tests/alpaca_test_client.py --host $PHONE_IP --focus-abs 500                                                                          
+python tests/alpaca_test_client.py --host $PHONE_IP --focus-abs 0                                                                            
+                                                     
+# 4. Capture via ImageBytes (fast binary)                                                                                                      
+python tests/alpaca_test_client.py --host $PHONE_IP --capture 1.0 -o cap_imagebytes.bin
+                                                                                                                                                 
+# 5. Capture via JSON ImageArray (slow, comparison)                                                                                            
+python tests/alpaca_test_client.py --host $PHONE_IP --capture 1.0 --json-image -o cap_json.json                                              
+                                                                                                                                                 
+# 6. Capture from a different camera (if multi-lens)                                                                                           
+python tests/alpaca_test_client.py --host $PHONE_IP --camera 1 --capture 1.0 -o cap_cam1.bin                                                 
+                                                                                                                                                 
+# 7. UDP auto-discovery (verifies broadcast listener)
+python tests/alpaca_test_client.py --discover
+
+## Alpaca tests (alpyca library).
+# Requires: source venv/bin/activate
+
+# 1. Discovery + full property dump
+python tests/alpaca_alpyca_client.py --host $PHONE_IP
+
+# 2. Auto-discover via UDP
+python tests/alpaca_alpyca_client.py --discover
+
+# 3. Focuser movement
+python tests/alpaca_alpyca_client.py --host $PHONE_IP --focus-abs 500
+python tests/alpaca_alpyca_client.py --host $PHONE_IP --focus-abs 0
+
+# 4. Capture (downloads via alpyca's ImageArray)
+python tests/alpaca_alpyca_client.py --host $PHONE_IP --capture 1.0
+
+# 5. Capture from a different camera
+python tests/alpaca_alpyca_client.py --host $PHONE_IP --camera 1 --capture 1.0 -o alpyca_cam1.bin
+
+# 6. Combined: focus + capture
+python tests/alpaca_alpyca_client.py --host $PHONE_IP --focus-abs 500 --capture 2.0 -o alpyca_focused.bin

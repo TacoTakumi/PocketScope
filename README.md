@@ -217,6 +217,10 @@ app/src/main/kotlin/com/pocketscope/
 | XmlPullParser | Streaming INDI XML parsing over persistent TCP |
 | Jetpack Compose | Night-vision UI |
 
+## Known Limitations
+
+- **Alpaca JSON ImageArray is not supported.** Serializing 12+ million pixels as a JSON array exceeds Android's heap limit and causes out-of-memory crashes. PocketScope returns ASCOM error 1024 (NOT_IMPLEMENTED) when JSON is requested. Use **ImageBytes** (`Accept: application/imagebytes`) instead — it is faster, more memory-efficient, and the recommended format for all Alpaca clients. All major clients (N.I.N.A., SGPro, alpyca) support ImageBytes.
+
 ## Why Not the Front Camera?
 
 Front cameras lack RAW_SENSOR output, have fixed focus (can't reach infinity), and smaller sensors with narrower apertures. See [Doc/why-not-front-camera.md](Doc/why-not-front-camera.md) for the full analysis.
