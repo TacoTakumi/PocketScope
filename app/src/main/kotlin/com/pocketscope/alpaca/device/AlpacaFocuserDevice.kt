@@ -24,13 +24,12 @@ class AlpacaFocuserDevice(
 
     override val driverVersion: String = BuildConfig.VERSION_NAME
 
-    private var isMoving = false
     private var tempComp = false
 
     override fun handleGet(method: String): DeviceMethodResult {
         return when (method) {
             "absolute" -> DeviceMethodResult.BoolVal(true)
-            "ismoving" -> DeviceMethodResult.BoolVal(isMoving)
+            "ismoving" -> DeviceMethodResult.BoolVal(false)
             "maxincrement" -> DeviceMethodResult.IntVal(focuserDevice.maxSteps)
             "maxstep" -> DeviceMethodResult.IntVal(focuserDevice.maxSteps)
             "position" -> DeviceMethodResult.IntVal(focuserDevice.currentPosition)
@@ -44,12 +43,9 @@ class AlpacaFocuserDevice(
 
     override fun handlePut(method: String, params: Map<String, String>): DeviceMethodResult {
         return when (method) {
-            "halt" -> {
-                isMoving = false
-                DeviceMethodResult.Ok
-            }
+            "halt" -> DeviceMethodResult.Ok
             "move" -> {
-                val position = findParam(params, "Position")?.toIntOrNull()
+                val position = params["position"]?.toIntOrNull()
                     ?: return DeviceMethodResult.InvalidValue("Position must be an integer")
                 if (position < 0 || position > focuserDevice.maxSteps)
                     return DeviceMethodResult.InvalidValue("Position out of range: $position (0..${focuserDevice.maxSteps})")
@@ -57,14 +53,12 @@ class AlpacaFocuserDevice(
                 DeviceMethodResult.Ok
             }
             "tempcomp" -> {
-                val v = findParam(params, "TempComp")?.lowercase()
-                if (v == "true") DeviceMethodResult.InvalidValue("Temperature compensation not available")
+                val v = params["tempcomp"]?.lowercase()
+                if (v == "true") DeviceMethodResult.NotImplemented("tempcomp")
                 else { tempComp = false; DeviceMethodResult.Ok }
             }
             else -> DeviceMethodResult.Unknown
         }
     }
 
-    private fun findParam(params: Map<String, String>, name: String): String? =
-        params[name]
 }

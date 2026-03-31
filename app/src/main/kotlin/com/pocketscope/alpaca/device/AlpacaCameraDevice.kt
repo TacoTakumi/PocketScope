@@ -197,45 +197,45 @@ class AlpacaCameraDevice(
     override fun handlePut(method: String, params: Map<String, String>): DeviceMethodResult {
         return when (method) {
             "binx" -> {
-                val v = findParam(params, "BinX")?.toIntOrNull()
+                val v = params["binx"]?.toIntOrNull()
                 if (v == null || v != 1) DeviceMethodResult.InvalidValue("BinX must be 1")
                 else DeviceMethodResult.Ok
             }
             "biny" -> {
-                val v = findParam(params, "BinY")?.toIntOrNull()
+                val v = params["biny"]?.toIntOrNull()
                 if (v == null || v != 1) DeviceMethodResult.InvalidValue("BinY must be 1")
                 else DeviceMethodResult.Ok
             }
             "numx" -> {
-                val v = findParam(params, "NumX")?.toIntOrNull()
+                val v = params["numx"]?.toIntOrNull()
                     ?: return DeviceMethodResult.InvalidValue("NumX must be an integer")
                 if (v < 1 || v > sensorWidth) return DeviceMethodResult.InvalidValue("NumX out of range: $v")
                 numX = v
                 DeviceMethodResult.Ok
             }
             "numy" -> {
-                val v = findParam(params, "NumY")?.toIntOrNull()
+                val v = params["numy"]?.toIntOrNull()
                     ?: return DeviceMethodResult.InvalidValue("NumY must be an integer")
                 if (v < 1 || v > sensorHeight) return DeviceMethodResult.InvalidValue("NumY out of range: $v")
                 numY = v
                 DeviceMethodResult.Ok
             }
             "startx" -> {
-                val v = findParam(params, "StartX")?.toIntOrNull()
+                val v = params["startx"]?.toIntOrNull()
                     ?: return DeviceMethodResult.InvalidValue("StartX must be an integer")
                 if (v < 0 || v >= sensorWidth) return DeviceMethodResult.InvalidValue("StartX out of range: $v")
                 startX = v
                 DeviceMethodResult.Ok
             }
             "starty" -> {
-                val v = findParam(params, "StartY")?.toIntOrNull()
+                val v = params["starty"]?.toIntOrNull()
                     ?: return DeviceMethodResult.InvalidValue("StartY must be an integer")
                 if (v < 0 || v >= sensorHeight) return DeviceMethodResult.InvalidValue("StartY out of range: $v")
                 startY = v
                 DeviceMethodResult.Ok
             }
             "gain" -> {
-                val v = findParam(params, "Gain")?.toIntOrNull()
+                val v = params["gain"]?.toIntOrNull()
                     ?: return DeviceMethodResult.InvalidValue("Gain must be an integer")
                 val min = lens.isoRange?.lower ?: 100
                 val max = lens.isoRange?.upper ?: 3200
@@ -244,7 +244,7 @@ class AlpacaCameraDevice(
                 DeviceMethodResult.Ok
             }
             "readoutmode" -> {
-                val v = findParam(params, "ReadoutMode")?.toIntOrNull()
+                val v = params["readoutmode"]?.toIntOrNull()
                     ?: return DeviceMethodResult.InvalidValue("ReadoutMode must be an integer")
                 if (v != 0) return DeviceMethodResult.InvalidValue("Only readout mode 0 (Raw) is supported")
                 readoutMode = v
@@ -269,7 +269,7 @@ class AlpacaCameraDevice(
     }
 
     private fun handleStartExposure(params: Map<String, String>): DeviceMethodResult {
-        val duration = findParam(params, "Duration")?.toDoubleOrNull()
+        val duration = params["duration"]?.toDoubleOrNull()
             ?: return DeviceMethodResult.InvalidValue("Duration must be a number (seconds)")
 
         val exposureMin = (lens.exposureTimeRange?.lower?.toDouble() ?: 1_000_000.0) / 1_000_000_000.0
@@ -335,6 +335,4 @@ class AlpacaCameraDevice(
         return DeviceMethodResult.Ok
     }
 
-    private fun findParam(params: Map<String, String>, name: String): String? =
-        params[name]
 }

@@ -114,7 +114,7 @@ class AlpacaServer(
      * consuming the request body more than once.
      */
     private fun paramFrom(params: Map<String, String>, name: String): String? =
-        params.entries.firstOrNull { it.key.equals(name, ignoreCase = true) }?.value
+        params[name.lowercase()]
 
     /** Parse ClientTransactionID as an unsigned 32-bit value, clamping negatives to 0. */
     private fun parseClientTxId(params: Map<String, String>): Int {
@@ -132,12 +132,12 @@ class AlpacaServer(
         val map = mutableMapOf<String, String>()
         // Query parameters
         request.queryParameters.entries().forEach { (key, values) ->
-            values.firstOrNull()?.let { map[key] = it }
+            values.firstOrNull()?.let { map[key.lowercase()] = it }
         }
         // Form body parameters (PUT/POST only)
         if (request.local.method == HttpMethod.Put || request.local.method == HttpMethod.Post) {
             receiveParameters().entries().forEach { (key, values) ->
-                values.firstOrNull()?.let { map.putIfAbsent(key, it) }
+                values.firstOrNull()?.let { map.putIfAbsent(key.lowercase(), it) }
             }
         }
         return map
@@ -483,9 +483,20 @@ class AlpacaServer(
                             clientTransactionID = clientTxId,
                             serverTransactionID = serverTxId
                         ))
-                        else -> respondDeviceResult(
-                            call, device.handleGet(method), method, clientTxId, serverTxId
-                        )
+                        else -> {
+                            if (!device.isConnected) {
+                                call.respond(MethodResponse(
+                                    clientTransactionID = clientTxId,
+                                    serverTransactionID = serverTxId,
+                                    errorNumber = AlpacaErrors.NOT_CONNECTED,
+                                    errorMessage = "Device is not connected"
+                                ))
+                                return@get
+                            }
+                            respondDeviceResult(
+                                call, device.handleGet(method), method, clientTxId, serverTxId
+                            )
+                        }
                     }
                 }
 
@@ -532,7 +543,7 @@ class AlpacaServer(
 
                     when (method) {
                         "connected" -> {
-                            val raw = params["Connected"]?.lowercase()
+                            val raw = params["connected"]?.lowercase()
                             if (raw != "true" && raw != "false") {
                                 call.respond(HttpStatusCode.BadRequest, MethodResponse(
                                     clientTransactionID = clientTxId,
@@ -562,9 +573,20 @@ class AlpacaServer(
                                 serverTransactionID = serverTxId
                             ))
                         }
-                        else -> respondDeviceResult(
-                            call, device.handlePut(method, params), method, clientTxId, serverTxId
-                        )
+                        else -> {
+                            if (!device.isConnected) {
+                                call.respond(MethodResponse(
+                                    clientTransactionID = clientTxId,
+                                    serverTransactionID = serverTxId,
+                                    errorNumber = AlpacaErrors.NOT_CONNECTED,
+                                    errorMessage = "Device is not connected"
+                                ))
+                                return@put
+                            }
+                            respondDeviceResult(
+                                call, device.handlePut(method, params), method, clientTxId, serverTxId
+                            )
+                        }
                     }
                 }
             }
